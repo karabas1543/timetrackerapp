@@ -1,0 +1,428 @@
+// Timer Service for Time Tracker App
+// Path: src/services/timer/timerService.js
+
+const { app, ipcMain } = require('electron');
+const EventEmitter = require('events');
+const User = require('../../data/models/user');
+const TimeEntry = require('../../data/models/timeEntry');
+
+class TimerService extends EventEmitter {
+  constructor() {
+    super(); // Initialize the EventEmitter
+    this.activeTimers = new Map(); // userId -> timeEntry
+    this.timerIntervals = new Map(); // userId -> interval
+    this.initialized = false;
+  }
+
+  /**
+   * Initialize the timer service
+   */
+  initialize() {
+    if (this.initialized) return;
+
+    // Register IPC handlers for timer events
+    this.registerIpcHandlers();
+    
+    console.log('Timer service initialized');
+    this.initialized = true;
+  }
+
+  /**
+   * Register IPC handlers for timer-related events
+   */
+  registerIpcHandlers() {
+    // Start timer
+    ipcMain.on('timer:start', (event, data) => {
+      const { username, clientId, projectId, isBillable = true } = data;
+      this.startTimer(username, clientId, projectId, isBillable)
+        .then(timeEntry => {
+          // Emit event for other services
+          this.emit('timer:started', timeEntry.user_id, timeEntry.id);
+          
+          event.sender.send('timer:update', { 
+            action: 'started',
+            timeEntryId: timeEntry.id,
+            startTime: timeEntry.start_time
+          });
+        })
+        .catch(error => {
+          console.error('Error starting timer:', error);
+          event.sender.send('timer:error', { 
+            action: 'start',
+            error: error.message
+          });
+        });
+    });
+
+    // Pause timer
+    ipcMain.on('timer:pause', (event, data) => {
+      const { username } = data;
+      this.pauseTimer(username)
+        .then(result => {
+          // Emit event for other services
+          this.emit('timer:paused', result.userId);
+          
+          event.sender.send('timer:update', { 
+            action: 'paused',
+            timeEntryId: result.timeEntryId
+          });
+        })
+        .catch(error => {
+          console.error('Error pausing timer:', error);
+          event.sender.send('timer:error', { 
+            action: 'pause',
+            error: error.message
+          });
+        });
+    });
+
+    // Resume timer
+    ipcMain.on('timer:resume', (event, data) => {
+      const { username } = data;
+      this.resumeTimer(username)
+        .then(timeEntry => {
+          // Emit event for other services
+          this.emit('timer:resumed', timeEntry.user_id, timeEntry.id);
+          
+          event.sender.send('timer:update', { 
+            action: 'resumed',
+            timeEntryId: timeEntry.id,
+            startTime: timeEntry.start_time
+          });
+        })
+        .catch(error => {
+          console.error('Error resuming timer:', error);
+          event.sender.send('timer:error', { 
+            action: 'resume',
+            error: error.message
+          });
+        });
+    });
+
+    // Stop timer
+    ipcMain.on('timer:stop', (event, data) => {
+      const { username } = data;
+      this.stopTimer(username)
+        .then(result => {
+          // Emit event for other services
+          this.emit('timer:stopped', result.userId);
+          
+          event.sender.send('timer:update', { 
+            action: 'stopped',
+            timeEntryId: result.timeEntryId,
+            duration: result.duration
+          });
+        })
+        .catch(error => {
+          console.error('Error stopping timer:', error);
+          event.sender.send('timer:error', { 
+            action: 'stop',
+            error: error.message
+          });
+        });
+    });
+
+    // Add notes to timer
+    ipcMain.on('timer:addNotes', (event, data) => {
+      const { username, notes } = data;
+      this.addNotes(username, notes)
+        .then(timeEntry => {
+          event.sender.send('timer:update', { 
+            action: 'notes',
+            timeEntryId: timeEntry.id
+          });
+        })
+        .catch(error => {
+          console.error('Error adding notes:', error);
+          event.sender.send('timer:error', { 
+            action: 'addNotes',
+            error: error.message
+          });
+        });
+    });
+
+    // Get timer status
+    ipcMain.on('timer:status', (event, data) => {
+      const { username } = data;
+      this.getTimerStatus(username)
+        .then(status => {
+          event.sender.send('timer:update', { 
+            action: 'status',
+            ...status
+          });
+        })
+        .catch(error => {
+          console.error('Error getting timer status:', error);
+          event.sender.send('timer:error', { 
+            action: 'status',
+            error: error.message
+          });
+        });
+    });
+  }
+
+  /**
+   * Start a new timer for a user
+   * @param {string} username - The username
+   * @param {number} clientId - The client ID
+   * @param {number} projectId - The project ID
+   * @param {boolean} isBillable - Whether the time is billable
+   * @returns {Object} - The new time entry
+   */
+  async startTimer(username, clientId, projectId, isBillable = true) {
+    // First, check if user already has an active timer
+    const user = await User.findOrCreate(username);
+    
+    // Check if user already has an active timer
+    if (this.activeTimers.has(user.id)) {
+      throw new Error('User already has an active timer');
+    }
+    
+    // Create a new time entry
+    const timeEntry = TimeEntry.start(user.id, clientId, projectId, isBillable);
+    
+    // Store the active timer
+    this.activeTimers.set(user.id, timeEntry);
+    
+    console.log(`Started timer for user ${username} on project ${projectId}`);
+    return timeEntry;
+  }
+
+  /**
+   * Pause an active timer
+   * @param {string} username - The username
+   * @returns {Object} - Result with timeEntryId
+   */
+  async pauseTimer(username) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has an active timer
+    if (!this.activeTimers.has(user.id)) {
+      throw new Error('No active timer to pause');
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    // Clear any interval if it exists
+    if (this.timerIntervals.has(user.id)) {
+      clearInterval(this.timerIntervals.get(user.id));
+      this.timerIntervals.delete(user.id);
+    }
+    
+    console.log(`Paused timer for user ${username}`);
+    
+    return {
+      timeEntryId: timeEntry.id,
+      userId: user.id
+    };
+  }
+
+  /**
+   * Resume a paused timer
+   * @param {string} username - The username
+   * @returns {Object} - The time entry
+   */
+  async resumeTimer(username) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has a paused timer
+    if (!this.activeTimers.has(user.id)) {
+      throw new Error('No timer to resume');
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    console.log(`Resumed timer for user ${username}`);
+    
+    return timeEntry;
+  }
+
+  /**
+   * Stop an active timer
+   * @param {string} username - The username
+   * @returns {Object} - Result with timeEntryId and duration
+   */
+  async stopTimer(username) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has an active timer
+    if (!this.activeTimers.has(user.id)) {
+      throw new Error('No active timer to stop');
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    // Stop the timer
+    timeEntry.stop();
+    
+    // Clear any interval if it exists
+    if (this.timerIntervals.has(user.id)) {
+      clearInterval(this.timerIntervals.get(user.id));
+      this.timerIntervals.delete(user.id);
+    }
+    
+    // Remove from active timers
+    this.activeTimers.delete(user.id);
+    
+    console.log(`Stopped timer for user ${username}, duration: ${timeEntry.duration}s`);
+    
+    return {
+      timeEntryId: timeEntry.id,
+      duration: timeEntry.duration,
+      userId: user.id
+    };
+  }
+
+  /**
+   * Add notes to the current time entry
+   * @param {string} username - The username
+   * @param {string} notes - The notes to add
+   * @returns {Object} - The updated time entry
+   */
+  async addNotes(username, notes) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has an active timer
+    if (!this.activeTimers.has(user.id)) {
+      throw new Error('No active timer to add notes to');
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    // Add notes
+    timeEntry.addNotes(notes);
+    
+    console.log(`Added notes to timer for user ${username}`);
+    
+    return timeEntry;
+  }
+
+  /**
+   * Get the current timer status for a user
+   * @param {string} username - The username
+   * @returns {Object} - Status object with active flag and timer info
+   */
+  async getTimerStatus(username) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      // Create the user if they don't exist
+      const newUser = await User.findOrCreate(username);
+      return {
+        isActive: false,
+        userId: newUser.id
+      };
+    }
+    
+    // Check if user has an active timer
+    if (!this.activeTimers.has(user.id)) {
+      // Check database for unfinished entries (in case of app crash/restart)
+      const activeEntry = await TimeEntry.getActive(user.id);
+      
+      if (activeEntry) {
+        // Restore the active timer
+        this.activeTimers.set(user.id, activeEntry);
+        
+        // Emit event for other services to know this timer is active
+        this.emit('timer:restored', user.id, activeEntry.id);
+        
+        return {
+          isActive: true,
+          timeEntryId: activeEntry.id,
+          startTime: activeEntry.start_time,
+          clientId: activeEntry.client_id,
+          projectId: activeEntry.project_id,
+          userId: user.id
+        };
+      }
+      
+      return {
+        isActive: false,
+        userId: user.id
+      };
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    return {
+      isActive: true,
+      timeEntryId: timeEntry.id,
+      startTime: timeEntry.start_time,
+      clientId: timeEntry.client_id,
+      projectId: timeEntry.project_id,
+      userId: user.id
+    };
+  }
+
+  /**
+   * Get timer status by user ID and time entry ID
+   * @param {number} userId - The user ID
+   * @param {number} timeEntryId - The time entry ID
+   * @returns {Object|null} - Status object or null
+   */
+  async getTimerStatusById(userId, timeEntryId) {
+    // Check if this is the active timer for this user
+    const activeEntry = this.activeTimers.get(userId);
+    
+    if (activeEntry && activeEntry.id === timeEntryId) {
+      return {
+        isActive: true,
+        timeEntryId: activeEntry.id,
+        startTime: activeEntry.start_time,
+        clientId: activeEntry.client_id,
+        projectId: activeEntry.project_id,
+        userId: userId
+      };
+    }
+    
+    // Check the database for the time entry
+    const timeEntry = await TimeEntry.getById(timeEntryId);
+    
+    // If the entry exists and isn't completed, it's technically active
+    if (timeEntry && !timeEntry.end_time) {
+      return {
+        isActive: true,
+        timeEntryId: timeEntry.id,
+        startTime: timeEntry.start_time,
+        clientId: timeEntry.client_id,
+        projectId: timeEntry.project_id,
+        userId: timeEntry.user_id
+      };
+    }
+    
+    return null;
+  }
+
+  /**
+   * Get all active users
+   * @returns {Array} - Array of user IDs with active timers
+   */
+  getActiveUsers() {
+    return Array.from(this.activeTimers.keys());
+  }
+}
+
+// Export a singleton instance
+const timerService = new TimerService();
+module.exports = timerService;

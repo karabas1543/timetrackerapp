@@ -1,0 +1,127 @@
+// Client Model for Time Tracker App
+// Path: src/data/models/client.js
+
+const dbManager = require('../db/dbManager');
+
+class Client {
+  /**
+   * Create a new Client instance
+   * @param {Object} data - Client data
+   */
+  constructor(data = {}) {
+    this.id = data.id || null;
+    this.name = data.name || '';
+    this.created_at = data.created_at || null;
+  }
+
+  /**
+   * Save the client to the database (create or update)
+   * @returns {Client} - The client instance
+   */
+  save() {
+    // Ensure database is initialized
+    dbManager.initialize();
+
+    const clientData = {
+      name: this.name
+    };
+
+    if (this.id) {
+      // Update existing client
+      dbManager.update('clients', this.id, clientData);
+    } else {
+      // Create new client
+      this.id = dbManager.insert('clients', clientData);
+    }
+
+    return this;
+  }
+
+  /**
+   * Get a client by ID
+   * @param {number} id - The client ID
+   * @returns {Client|null} - Client instance or null if not found
+   */
+  static getById(id) {
+    // Ensure database is initialized
+    dbManager.initialize();
+
+    const clientData = dbManager.getById('clients', id);
+    return clientData ? new Client(clientData) : null;
+  }
+
+  /**
+   * Get a client by name
+   * @param {string} name - The client name
+   * @returns {Client|null} - Client instance or null if not found
+   */
+  static getByName(name) {
+    // Ensure database is initialized
+    dbManager.initialize();
+
+    const query = 'SELECT * FROM clients WHERE name = ?';
+    const results = dbManager.runQuery(query, [name]);
+    
+    return results.length > 0 ? new Client(results[0]) : null;
+  }
+
+  /**
+   * Get all clients
+   * @returns {Array} - Array of Client instances
+   */
+  static getAll() {
+    // Ensure database is initialized
+    dbManager.initialize();
+
+    const clients = dbManager.getAll('clients');
+    return clients.map(clientData => new Client(clientData));
+  }
+
+  /**
+   * Get all projects for this client
+   * @returns {Array} - Array of Project instances
+   */
+  getProjects() {
+    if (!this.id) return [];
+
+    // We'll need to import the Project model here to avoid circular dependencies
+    const Project = require('./project');
+    return Project.getByClientId(this.id);
+  }
+
+  /**
+   * Delete a client
+   * @returns {boolean} - True if successful
+   */
+  delete() {
+    if (!this.id) return false;
+
+    // Ensure database is initialized
+    dbManager.initialize();
+
+    return dbManager.delete('clients', this.id);
+  }
+
+  /**
+   * Create a new project for this client
+   * @param {string} name - Project name
+   * @returns {Object} - The Project instance
+   */
+  createProject(name) {
+    if (!this.id) {
+      throw new Error('Cannot create project for unsaved client');
+    }
+
+    // We'll need to import the Project model here to avoid circular dependencies
+    const Project = require('./project');
+    
+    const project = new Project({
+      client_id: this.id,
+      name: name
+    });
+    
+    return project.save();
+  }
+}
+
+module.exports = Client;

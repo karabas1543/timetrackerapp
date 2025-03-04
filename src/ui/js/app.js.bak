@@ -1,0 +1,341 @@
+// Wait for DOM to load
+document.addEventListener('DOMContentLoaded', () => {
+    // Get UI elements
+    const loginSection = document.getElementById('login-section');
+    const timerSection = document.getElementById('timer-section');
+    const loginButton = document.getElementById('login-button');
+    const usernameInput = document.getElementById('username');
+    
+    const clientSelect = document.getElementById('client-select');
+    const projectSelect = document.getElementById('project-select');
+    const startButton = document.getElementById('start-button');
+    const pauseButton = document.getElementById('pause-button');
+    const stopButton = document.getElementById('stop-button');
+    const timeDisplay = document.getElementById('time-display');
+    const entryNotes = document.getElementById('entry-notes');
+    const activityStatus = document.getElementById('activity-status');
+    
+    let timerRunning = false;
+    let timerInterval = null;
+    let seconds = 0;
+    let currentUsername = '';
+    let activeTimeEntryId = null;
+    let currentUserId = null;
+    
+    // Disable timer control buttons initially
+    pauseButton.disabled = true;
+    stopButton.disabled = true;
+    
+    // Login functionality
+    loginButton.addEventListener('click', () => {
+        const username = usernameInput.value.trim();
+        if (username) {
+            // Store username for later use
+            currentUsername = username;
+            
+            // Send login info to main process
+            window.api.send('login', { username });
+            
+            // Check timer status to see if there's an active timer
+            window.api.send('timer:status', { username });
+            
+            // Switch to the timer section
+            loginSection.classList.add('hidden');
+            timerSection.classList.remove('hidden');
+        } else {
+            alert('Please enter your name');
+        }
+    });
+    
+    // Client selection change
+    clientSelect.addEventListener('change', () => {
+        const clientId = clientSelect.value;
+        
+        // Clear and populate project select based on client
+        // This would normally fetch projects from the database
+        // For now, we'll use dummy data
+        projectSelect.innerHTML = '<option value="">Select a project</option>';
+        
+        if (clientId === 'client1') {
+            projectSelect.innerHTML += `
+                <option value="project1">Website Redesign</option>
+                <option value="project2">Marketing Campaign</option>
+            `;
+        } else if (clientId === 'client2') {
+            projectSelect.innerHTML += `
+                <option value="project3">Mobile App</option>
+                <option value="project4">Branding</option>
+            `;
+        }
+    });
+    
+    // Timer functionality
+    function updateTimerDisplay() {
+        seconds++;
+        const hours = Math.floor(seconds / 3600).toString().padStart(2, '0');
+        const minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+        const secs = (seconds % 60).toString().padStart(2, '0');
+        timeDisplay.textContent = `${hours}:${minutes}:${secs}`;
+    }
+    
+    function resetTimer() {
+        seconds = 0;
+        timeDisplay.textContent = '00:00:00';
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+    }
+    
+    startButton.addEventListener('click', () => {
+        const clientId = clientSelect.value;
+        const projectId = projectSelect.value;
+        
+        if (!clientId || !projectId) {
+            alert('Please select a client and project before starting the timer');
+            return;
+        }
+        
+        if (!timerRunning) {
+            // Send start timer command to main process
+            window.api.send('timer:start', { 
+                username: currentUsername, 
+                clientId, 
+                projectId,
+                isBillable: true 
+            });
+            
+            // UI will update when we get the timer:update event back
+        }
+    });
+    
+    pauseButton.addEventListener('click', () => {
+        if (timerRunning) {
+            // Send pause timer command to main process
+            window.api.send('timer:pause', { username: currentUsername });
+            
+            // UI will update when we get the timer:update event back
+        }
+    });
+    
+    stopButton.addEventListener('click', () => {
+        if (timerRunning || activeTimeEntryId) {
+            // Add any notes to the time entry before stopping
+            if (entryNotes.value.trim()) {
+                window.api.send('timer:addNotes', { 
+                    username: currentUsername, 
+                    notes: entryNotes.value.trim() 
+                });
+            }
+            
+            // Send stop timer command to main process
+            window.api.send('timer:stop', { username: currentUsername });
+            
+            // Clear notes
+            entryNotes.value = '';
+            
+            // UI will update when we get the timer:update event back
+        }
+    });
+    
+    // Save notes when they change (debounced)
+    let notesTimeout = null;
+    entryNotes.addEventListener('input', () => {
+        if (activeTimeEntryId) {
+            // Clear previous timeout
+            if (notesTimeout) {
+                clearTimeout(notesTimeout);
+            }
+            
+            // Set new timeout to save notes after 1 second of no typing
+            notesTimeout = setTimeout(() => {
+                window.api.send('timer:addNotes', { 
+                    username: currentUsername, 
+                    notes: entryNotes.value.trim() 
+                });
+            }, 1000);
+        }
+    });
+    
+    // Activity status updates
+    function updateActivityStatusUI(status) {
+        activityStatus.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        
+        // Update class for styling
+        activityStatus.className = '';
+        activityStatus.classList.add(`status-${status}`);
+    }
+    
+    // Listen for timer updates from the main process
+    window.api.receive('timer:update', (data) => {
+        console.log('Timer update received:', data);
+        
+        switch (data.action) {
+            case 'started':
+                timerRunning = true;
+                activeTimeEntryId = data.timeEntryId;
+                currentUserId = data.userId;
+                
+                // Start the timer display
+                resetTimer();
+                timerInterval = setInterval(updateTimerDisplay, 1000);
+                
+                // Update UI
+                startButton.disabled = true;
+                pauseButton.disabled = false;
+                stopButton.disabled = false;
+                
+                // Disable client and project selection while timer is running
+                clientSelect.disabled = true;
+                projectSelect.disabled = true;
+                
+                // Start activity tracking
+                if (window.activityTrackerUI) {
+                    window.activityTrackerUI.startTracking(currentUserId);
+                    updateActivityStatusUI('active');
+                }
+                break;
+                
+            case 'paused':
+                timerRunning = false;
+                
+                // Stop the timer display
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                }
+                
+                // Update UI
+                startButton.disabled = false;
+                pauseButton.disabled = true;
+                stopButton.disabled = false;
+                break;
+                
+            case 'resumed':
+                timerRunning = true;
+                
+                // Resume the timer display
+                timerInterval = setInterval(updateTimerDisplay, 1000);
+                
+                // Update UI
+                startButton.disabled = true;
+                pauseButton.disabled = false;
+                stopButton.disabled = false;
+                break;
+                
+            case 'stopped':
+                timerRunning = false;
+                activeTimeEntryId = null;
+                
+                // Reset the timer display
+                resetTimer();
+                
+                // Update UI
+                startButton.disabled = false;
+                pauseButton.disabled = true;
+                stopButton.disabled = true;
+                
+                // Enable client and project selection
+                clientSelect.disabled = false;
+                projectSelect.disabled = false;
+                
+                // Stop activity tracking
+                if (window.activityTrackerUI) {
+                    window.activityTrackerUI.stopTracking();
+                    updateActivityStatusUI('inactive');
+                }
+                break;
+                
+            case 'status':
+                // Handle timer status update (usually in response to timer:status request)
+                if (data.isActive) {
+                    timerRunning = true;
+                    activeTimeEntryId = data.timeEntryId;
+                    currentUserId = data.userId;
+                    
+                    // Calculate seconds elapsed
+                    const startTime = new Date(data.startTime).getTime();
+                    const now = Date.now();
+                    seconds = Math.floor((now - startTime) / 1000);
+                    
+                    // Start the timer display
+                    timeDisplay.textContent = formatTime(seconds);
+                    timerInterval = setInterval(updateTimerDisplay, 1000);
+                    
+                    // Update UI
+                    startButton.disabled = true;
+                    pauseButton.disabled = false;
+                    stopButton.disabled = false;
+                    
+                    // Set client and project selection
+                    clientSelect.value = data.clientId;
+                    clientSelect.dispatchEvent(new Event('change'));
+                    projectSelect.value = data.projectId;
+                    
+                    // Disable selection while timer is running
+                    clientSelect.disabled = true;
+                    projectSelect.disabled = true;
+                    
+                    // Start activity tracking
+                    if (window.activityTrackerUI) {
+                        window.activityTrackerUI.startTracking(data.userId);
+                        updateActivityStatusUI('active');
+                    }
+                } else {
+                    currentUserId = data.userId;
+                }
+                break;
+        }
+    });
+    
+    // Listen for timer errors
+    window.api.receive('timer:error', (data) => {
+        console.error('Timer error:', data);
+        alert(`Error: ${data.error}`);
+    });
+    
+    // Listen for idle detection
+    window.api.receive('idle:detected', (data) => {
+        const idleTime = data.idleTime;
+        const minutes = Math.floor(idleTime / 60);
+        
+        // Show alert if user has been idle for 5+ minutes
+        if (minutes >= 5 && timerRunning) {
+            const resume = confirm(`You've been idle for ${minutes} minutes. Do you want to continue tracking time?`);
+            
+            if (!resume) {
+                // User chose to stop the timer
+                window.api.send('timer:stop', { username: currentUsername });
+            }
+        }
+    });
+    
+    // Listen for screenshot notifications
+    window.api.receive('screenshot:taken', () => {
+        // Show a brief notification that a screenshot was taken
+        const notification = document.createElement('div');
+        notification.className = 'screenshot-notification';
+        notification.textContent = 'Screenshot taken';
+        document.body.appendChild(notification);
+        
+        // Remove the notification after 2 seconds
+        setTimeout(() => {
+            notification.remove();
+        }, 2000);
+    });
+    
+    // Listen for activity status changes
+    window.api.receive('activity:statusChange', (data) => {
+        if (data.userId === currentUserId) {
+            updateActivityStatusUI(data.status);
+        }
+    });
+    
+    // Helper function to format time
+    function formatTime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+        const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+        const seconds = (totalSeconds % 60).toString().padStart(2, '0');
+        return `${hours}:${minutes}:${seconds}`;
+    }
+});

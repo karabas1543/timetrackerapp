@@ -1,0 +1,24 @@
+{
+  "name": "time-tracker",
+  "version": "1.0.0",
+  "description": "A time tracking application for internal agency use",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron src/main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "time",
+    "tracking",
+    "electron"
+  ],
+  "author": "Anton Kuratnik",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^34.3.0"
+  },
+  "dependencies": {
+    "googleapis": "^144.0.0",
+    "sqlite3": "^5.1.7"
+  }
+}
