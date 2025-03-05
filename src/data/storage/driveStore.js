@@ -541,8 +541,8 @@ class DriveStore {
     }
   }
 
-  /**
- * Upload a file to Google Drive
+ /**
+ * Upload a file to Google Drive with better binary handling
  * @param {string} name - File name
  * @param {string} mimeType - File MIME type
  * @param {Buffer} data - File data
@@ -550,55 +550,87 @@ class DriveStore {
  * @returns {Promise<string>} - The new file ID
  */
 async uploadFile(name, mimeType, data, folderId) {
-  try {
-    // Check if a file with this name already exists in the folder
-    const existingFile = await this.findFileByName(name, folderId);
-    
-    if (existingFile) {
-      // Update the existing file
-      console.log(`File ${name} already exists, updating content...`);
+    try {
+      // Check if a file with this name already exists in the folder
+      const existingFile = await this.findFileByName(name, folderId);
       
-      // Convert Buffer to string for JSON data
-      const mediaData = mimeType === 'application/json' ? data.toString('utf8') : data;
+      // Special handling based on whether it's binary or text data
+      const isJSON = mimeType === 'application/json';
       
-      const response = await this.drive.files.update({
-        fileId: existingFile.id,
-        media: {
-          mimeType: mimeType,
-          body: mediaData
+      // Convert binary buffer to stream for Google Drive upload
+      // This is crucial for image uploads to work properly
+      let mediaBody;
+      if (isJSON) {
+        // For JSON, convert to string
+        mediaBody = data.toString('utf8');
+      } else {
+        // For binary data, use the raw buffer data
+        // This creates a data URL format that Drive API can handle
+        const base64Data = data.toString('base64');
+        mediaBody = base64Data;
+      }
+      
+      if (existingFile) {
+        // Update the existing file
+        console.log(`File ${name} already exists, updating content...`);
+        
+        const response = await this.drive.files.update({
+          fileId: existingFile.id,
+          media: {
+            mimeType: mimeType,
+            body: mediaBody
+          }
+        });
+        
+        console.log(`Updated existing file: ${name}`);
+        return existingFile.id;
+      } else {
+        // Create a new file
+        console.log(`Creating new file: ${name}`);
+        
+        // Create file metadata
+        const fileMetadata = {
+          name: name,
+          parents: [folderId]
+        };
+        
+        // Use the Drive API's simple upload for better reliability with binary data
+        const response = await this.drive.files.create({
+          requestBody: fileMetadata,
+          media: {
+            mimeType: mimeType,
+            body: mediaBody
+          },
+          fields: 'id'
+        });
+        
+        const fileId = response.data.id;
+        console.log(`Created new file: ${name} with ID: ${fileId}`);
+        
+        // Make the file visible to anyone with the link
+        try {
+          await this.drive.permissions.create({
+            fileId: fileId,
+            requestBody: {
+              role: 'reader',
+              type: 'anyone',
+              allowFileDiscovery: false
+            }
+          });
+          console.log(`Set sharing permissions for file ${name}`);
+        } catch (permError) {
+          console.error(`Error setting permissions for file ${name}:`, permError);
+          // Continue even if permission setting fails
         }
-      });
-      
-      return existingFile.id;
-    } else {
-      // Create a new file
-      console.log(`Creating new file: ${name}`);
-      
-      const fileMetadata = {
-        name: name,
-        parents: [folderId]
-      };
-      
-      // Convert Buffer to string for JSON data
-      const mediaData = mimeType === 'application/json' ? data.toString('utf8') : data;
-      
-      const response = await this.drive.files.create({
-        requestBody: fileMetadata,
-        media: {
-          mimeType: mimeType,
-          body: mediaData
-        },
-        fields: 'id'
-      });
-      
-      return response.data.id;
+        
+        return fileId;
+      }
+    } catch (error) {
+      console.error(`Error uploading file ${name}:`, error);
+      throw error;
     }
-  } catch (error) {
-    console.error(`Error uploading file ${name}:`, error);
-    throw error;
   }
-}
-
+  
   /**
    * Find a file by name in a specific folder
    * @param {string} name - File name

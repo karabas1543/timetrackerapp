@@ -22,9 +22,9 @@ class Screenshot {
 
   /**
    * Save the screenshot to the database (create or update)
-   * @returns {Screenshot} - The screenshot instance
+   * @returns {Promise<Screenshot>} - The screenshot instance
    */
-  save() {
+  async save() {
     // Ensure database is initialized
     dbManager.initialize();
 
@@ -42,26 +42,38 @@ class Screenshot {
 
     if (this.id) {
       // Update existing screenshot
-      dbManager.update('screenshots', this.id, screenshotData);
+      await dbManager.update('screenshots', this.id, screenshotData);
     } else {
       // Create new screenshot
-      this.id = dbManager.insert('screenshots', screenshotData);
+      this.id = await dbManager.insert('screenshots', screenshotData);
       
       // Add to sync queue
-      this.addToSyncQueue();
+      await this.addToSyncQueue();
     }
 
     return this;
   }
 
   /**
-   * Add this screenshot to the sync queue
-   */
-  addToSyncQueue() {
-    if (!this.id) return;
+  * Add this screenshot to the sync queue
+  */
+async addToSyncQueue() {
+  if (!this.id) return;
 
+  try {
+    // Make sure database is initialized
     dbManager.initialize();
     
+    // Check if entry already exists in sync_status
+    const checkQuery = 'SELECT * FROM sync_status WHERE entity_type = ? AND entity_id = ?';
+    const existing = await dbManager.runQuery(checkQuery, ['screenshot', this.id]);
+    
+    if (existing && existing.length > 0) {
+      console.log(`Screenshot ${this.id} already in sync queue`);
+      return;
+    }
+    
+    // Add new sync status record
     const syncData = {
       entity_type: 'screenshot',
       entity_id: this.id,
@@ -69,19 +81,42 @@ class Screenshot {
       last_sync_attempt: null
     };
     
-    dbManager.insert('sync_status', syncData);
+    await dbManager.insert('sync_status', syncData);
+    console.log(`Added screenshot ${this.id} to sync queue`);
+  } catch (error) {
+    console.error(`Error adding screenshot ${this.id} to sync queue:`, error);
   }
+}
 
   /**
    * Create a new screenshot for a time entry
    * @param {number} timeEntryId - The time entry ID
    * @param {Buffer} imageData - The screenshot image data
-   * @returns {Screenshot} - The new screenshot instance
+   * @returns {Promise<Screenshot>} - The new screenshot instance
    */
-  static create(timeEntryId, imageData) {
+  static async create(timeEntryId, imageData) {
+    // Use the app name for the directory path instead of default Electron
+    // This ensures screenshots go to Time Tracker folder rather than Electron
+    const appName = 'Time Tracker';
+    
+    // Get the base user data path
+    let userDataPath = app.getPath('userData');
+    
+    // Fix: If app is running from development (as Electron), modify the path
+    // This is a workaround for development environment
+    if (userDataPath.includes('Electron')) {
+      userDataPath = userDataPath.replace('Electron', appName);
+      // Ensure the directory exists
+      if (!fs.existsSync(userDataPath)) {
+        fs.mkdirSync(userDataPath, { recursive: true });
+      }
+    }
+    
     // Create screenshots directory if it doesn't exist
-    const userDataPath = app.getPath('userData');
     const screenshotsDir = path.join(userDataPath, 'screenshots');
+    
+    // Log path for debugging
+    console.log('Saving screenshot to directory:', screenshotsDir);
     
     if (!fs.existsSync(screenshotsDir)) {
       fs.mkdirSync(screenshotsDir, { recursive: true });
@@ -102,16 +137,16 @@ class Screenshot {
       timestamp: timestamp.toISOString()
     });
     
-    return screenshot.save();
+    return await screenshot.save();
   }
 
   /**
    * Mark screenshot as deleted (without actually deleting the file)
-   * @returns {Screenshot} - The updated screenshot instance
+   * @returns {Promise<Screenshot>} - The updated screenshot instance
    */
-  markAsDeleted() {
+  async markAsDeleted() {
     this.is_deleted = 1;
-    return this.save();
+    return await this.save();
   }
 
   /**
@@ -129,13 +164,13 @@ class Screenshot {
   /**
    * Get a screenshot by ID
    * @param {number} id - The screenshot ID
-   * @returns {Screenshot|null} - Screenshot instance or null if not found
+   * @returns {Promise<Screenshot|null>} - Screenshot instance or null if not found
    */
-  static getById(id) {
+  static async getById(id) {
     // Ensure database is initialized
     dbManager.initialize();
 
-    const screenshotData = dbManager.getById('screenshots', id);
+    const screenshotData = await dbManager.getById('screenshots', id);
     return screenshotData ? new Screenshot(screenshotData) : null;
   }
 
@@ -143,9 +178,9 @@ class Screenshot {
    * Get all screenshots for a time entry
    * @param {number} timeEntryId - The time entry ID
    * @param {boolean} includeDeleted - Whether to include deleted screenshots
-   * @returns {Array} - Array of Screenshot instances
+   * @returns {Promise<Array>} - Array of Screenshot instances
    */
-  static getByTimeEntryId(timeEntryId, includeDeleted = false) {
+  static async getByTimeEntryId(timeEntryId, includeDeleted = false) {
     // Ensure database is initialized
     dbManager.initialize();
 
@@ -157,7 +192,7 @@ class Screenshot {
     
     query += ' ORDER BY timestamp ASC';
     
-    const screenshots = dbManager.runQuery(query, [timeEntryId]);
+    const screenshots = await dbManager.runQuery(query, [timeEntryId]);
     return screenshots.map(data => new Screenshot(data));
   }
 
@@ -165,9 +200,9 @@ class Screenshot {
    * Get all screenshots for a user
    * @param {number} userId - The user ID
    * @param {boolean} includeDeleted - Whether to include deleted screenshots
-   * @returns {Array} - Array of Screenshot instances
+   * @returns {Promise<Array>} - Array of Screenshot instances
    */
-  static getByUserId(userId, includeDeleted = false) {
+  static async getByUserId(userId, includeDeleted = false) {
     // Ensure database is initialized
     dbManager.initialize();
 
@@ -184,15 +219,15 @@ class Screenshot {
     
     query += ' ORDER BY s.timestamp DESC';
     
-    const screenshots = dbManager.runQuery(query, [userId]);
+    const screenshots = await dbManager.runQuery(query, [userId]);
     return screenshots.map(data => new Screenshot(data));
   }
 
   /**
    * Delete a screenshot permanently
-   * @returns {boolean} - True if successful
+   * @returns {Promise<boolean>} - True if successful
    */
-  delete() {
+  async delete() {
     if (!this.id) return false;
 
     // Ensure database is initialized
@@ -208,7 +243,7 @@ class Screenshot {
     }
 
     // Delete from database
-    return dbManager.delete('screenshots', this.id);
+    return await dbManager.delete('screenshots', this.id);
   }
 }
 

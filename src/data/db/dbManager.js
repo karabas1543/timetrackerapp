@@ -13,48 +13,65 @@ class DatabaseManager {
   }
 
   /**
-   * Initialize the database connection and create tables if they don't exist
-   */
-  initialize() {
-    if (this.initialized) return;
+ * Initialize the database connection and create tables if they don't exist
+ */
+initialize() {
+  if (this.initialized) return;
 
-    try {
-      // Create database directory if it doesn't exist
-      const userDataPath = app.getPath('userData');
-      const dbPath = path.join(userDataPath, 'database');
-      
-      if (!fs.existsSync(dbPath)) {
-        fs.mkdirSync(dbPath, { recursive: true });
-      }
-      
-      // Connect to the SQLite database
-      const dbFile = path.join(dbPath, 'timetracker.db');
-      this.db = new sqlite3.Database(dbFile);
-      
-      // Enable foreign keys
-      this.db.run('PRAGMA foreign_keys = ON');
-      
-      // Load and execute schema SQL
-      const schemaPath = path.join(__dirname, 'schema.sql');
-      const schema = fs.readFileSync(schemaPath, 'utf8');
-      
-      // Execute each statement in the schema
-      this.db.serialize(() => {
-        schema.split(';').forEach(statement => {
-          if (statement.trim()) {
-            this.db.run(statement);
-          }
-        });
+  try {
+    // Create database directory if it doesn't exist
+    const userDataPath = app.getPath('userData');
+    const dbPath = path.join(userDataPath, 'database');
+    
+    if (!fs.existsSync(dbPath)) {
+      fs.mkdirSync(dbPath, { recursive: true });
+    }
+    
+    // Connect to the SQLite database
+    const dbFile = path.join(dbPath, 'timetracker.db');
+    this.db = new sqlite3.Database(dbFile);
+    
+    // Enable foreign keys
+    this.db.run('PRAGMA foreign_keys = ON');
+    
+    // Load and execute schema SQL
+    const schemaPath = path.join(__dirname, 'schema.sql');
+    const schema = fs.readFileSync(schemaPath, 'utf8');
+    
+    // Execute each statement in the schema
+    this.db.serialize(() => {
+      schema.split(';').forEach(statement => {
+        if (statement.trim()) {
+          this.db.run(statement);
+        }
       });
       
-      console.log('Database initialized successfully');
-      this.initialized = true;
-    } catch (error) {
-      console.error('Failed to initialize database:', error);
-      throw error;
-    }
+      // Clean up duplicate clients
+      const dedupClients = `
+        DELETE FROM clients WHERE id NOT IN (
+          SELECT MIN(id) FROM clients GROUP BY name
+        )
+      `;
+      this.db.run(dedupClients);
+      
+      // Clean up duplicate projects
+      const dedupProjects = `
+        DELETE FROM projects WHERE id NOT IN (
+          SELECT MIN(id) FROM projects GROUP BY client_id, name
+        )
+      `;
+      this.db.run(dedupProjects);
+      
+      console.log('Cleaned up duplicate clients and projects');
+    });
+    
+    console.log('Database initialized successfully');
+    this.initialized = true;
+  } catch (error) {
+    console.error('Failed to initialize database:', error);
+    throw error;
   }
-
+}
   /**
    * Get a single record by ID
    * @param {string} table - The table name

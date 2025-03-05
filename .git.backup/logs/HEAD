@@ -1,0 +1,13 @@
+0000000000000000000000000000000000000000 a8a2253a90dfb1ca39c01827cae7c4afeb9857be Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741129990 +0000	checkout: moving from main to origin/main
+a8a2253a90dfb1ca39c01827cae7c4afeb9857be a8a2253a90dfb1ca39c01827cae7c4afeb9857be Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741130043 +0000	checkout: moving from a8a2253a90dfb1ca39c01827cae7c4afeb9857be to main
+a8a2253a90dfb1ca39c01827cae7c4afeb9857be e3482590d668ab7871fe58172c2c3a12689dc97b Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741130083 +0000	commit: Resolving with desktop version
+e3482590d668ab7871fe58172c2c3a12689dc97b 9ff5938e6e0475aa6cdceed6c9f5bb1b03999910 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741130577 +0000	commit: Update gitignore to exclude node_modules
+0000000000000000000000000000000000000000 2bf73280c78ec8d53a5766fa49a51d936ca79531 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741131336 +0000	commit (initial): Initial commit without node_modules
+2bf73280c78ec8d53a5766fa49a51d936ca79531 0000000000000000000000000000000000000000 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741131344 +0000	Branch: renamed refs/heads/temp_branch to refs/heads/main
+0000000000000000000000000000000000000000 2bf73280c78ec8d53a5766fa49a51d936ca79531 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741131344 +0000	Branch: renamed refs/heads/temp_branch to refs/heads/main
+2bf73280c78ec8d53a5766fa49a51d936ca79531 c0160222207ae2e661850fe0cd07da674b52246c Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741133936 +0000	commit: Attempted fixes
+c0160222207ae2e661850fe0cd07da674b52246c 4d818f99b6c55a95f026b03df4654bdd2b2c4155 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741140107 +0000	commit: Functional prototype
+4d818f99b6c55a95f026b03df4654bdd2b2c4155 e9b7f12529dd4390e08a807c47425941300599c2 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741144342 +0000	commit: Fixed Drive Integration
+e9b7f12529dd4390e08a807c47425941300599c2 5410da32fb4ca9155a4a11f473ad77e42e1006f5 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741144567 +0000	commit: Working Drive Integration
+5410da32fb4ca9155a4a11f473ad77e42e1006f5 e9b7f12529dd4390e08a807c47425941300599c2 Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741144794 +0000	reset: moving to HEAD~1
+e9b7f12529dd4390e08a807c47425941300599c2 b7176a8ad3f4e4f087e7be923e5366cf157ad43c Anton Kuratnik <antonkuratnik@Users-MacBook-Pro-6.local> 1741144813 +0000	commit: Fixed Google Drive Integration
