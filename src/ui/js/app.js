@@ -1,6 +1,7 @@
+// Time Tracker Application - Main UI Script
 // Wait for DOM to load
 document.addEventListener('DOMContentLoaded', () => {
-    // Get UI elements
+    // ------ UI ELEMENTS ------
     const loginSection = document.getElementById('login-section');
     const timerSection = document.getElementById('timer-section');
     const loginButton = document.getElementById('login-button');
@@ -15,6 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const entryNotes = document.getElementById('entry-notes');
     const activityStatus = document.getElementById('activity-status');
     
+    // ------ STATE VARIABLES ------
     let timerRunning = false;
     let timerInterval = null;
     let seconds = 0;
@@ -22,12 +24,72 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeTimeEntryId = null;
     let currentUserId = null;
     let idleAlertShown = false;
+    let lastSyncTime = Date.now();
+    let lastServerTime = Date.now();
+    let lastClientTime = Date.now();
+    let timeDrift = 0; // Drift between client and server time
     
+    // ------ INITIALIZATION ------
     // Ensure buttons start in correct state
     pauseButton.classList.add('hidden');
     stopButton.classList.add('hidden');
     
-    // Load clients when the app starts
+    // ------ TIMER FUNCTIONS ------
+    // Update the timer display with current elapsed time
+    function updateTimerDisplay() {
+        // Detect if we need to sync with the server
+        // When minimized, the time between calls will be much greater than 1 second
+        const now = Date.now();
+        const timeSinceLastSync = now - lastSyncTime;
+        
+        // Request time from server every 2 seconds or if it's been more than 3 seconds
+        // since our last update (which indicates the app was backgrounded)
+        if (timeSinceLastSync > 2000) {
+            // Request current time from backend
+            window.api.send('timer:getCurrentTime', { username: currentUsername });
+            lastSyncTime = now;
+        } else {
+            // For smoother UI, calculate the elapsed time locally
+            // considering the app might have been in the background
+            const delta = now - lastClientTime;
+            lastClientTime = now;
+            
+            // Only increment if timer is running
+            if (timerRunning) {
+                // Use the time difference to increment the seconds counter
+                // This helps account for throttling when the app is in the background
+                seconds += delta / 1000;
+            }
+        }
+        
+        // Format and display time using whole seconds only (truncate decimal portion)
+        const displaySeconds = Math.floor(seconds);
+        const hours = Math.floor(displaySeconds / 3600).toString().padStart(2, '0');
+        const minutes = Math.floor((displaySeconds % 3600) / 60).toString().padStart(2, '0');
+        const secs = (displaySeconds % 60).toString().padStart(2, '0');
+        timeDisplay.textContent = `${hours}:${minutes}:${secs}`;
+    }
+    
+    // Reset the timer to 00:00:00
+    function resetTimer() {
+        seconds = 0;
+        timeDisplay.textContent = '00:00:00';
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+    }
+    
+    // Format seconds into HH:MM:SS string
+    function formatTime(totalSeconds) {
+        const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
+        const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
+        const secs = (totalSeconds % 60).toString().padStart(2, '0');
+        return `${hours}:${minutes}:${secs}`;
+    }
+    
+    // ------ CLIENT/PROJECT DATA FUNCTIONS ------
+    // Load clients from the database
     async function loadClients() {
         try {
             // Clear current options
@@ -75,7 +137,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    // Login functionality
+    // ------ UI UPDATE FUNCTIONS ------
+    // Update the activity status UI
+    function updateActivityStatusUI(status) {
+        activityStatus.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+        
+        // Update class for styling
+        activityStatus.className = '';
+        activityStatus.classList.add(`status-${status}`);
+    }
+    
+    // ------ EVENT LISTENERS ------
+    // Login button click
     loginButton.addEventListener('click', () => {
         const username = usernameInput.value.trim();
         if (username) {
@@ -107,24 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadProjects(clientId);
     });
     
-    // Timer functionality
-    function updateTimerDisplay() {
-        seconds++;
-        const hours = Math.floor(seconds / 3600).toString().padStart(2, '0');
-        const minutes = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
-        const secs = (seconds % 60).toString().padStart(2, '0');
-        timeDisplay.textContent = `${hours}:${minutes}:${secs}`;
-    }
-    
-    function resetTimer() {
-        seconds = 0;
-        timeDisplay.textContent = '00:00:00';
-        if (timerInterval) {
-            clearInterval(timerInterval);
-            timerInterval = null;
-        }
-    }
-    
+    // Start/resume button click
     startButton.addEventListener('click', () => {
         if (activeTimeEntryId && !timerRunning) {
             // There's a paused timer, resume it
@@ -151,6 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Pause button click
     pauseButton.addEventListener('click', () => {
         if (timerRunning) {
             // Send pause timer command to main process
@@ -161,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
+    // Stop button click
     stopButton.addEventListener('click', () => {
         if (timerRunning || activeTimeEntryId) {
             // Add any notes to the time entry before stopping
@@ -198,14 +256,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Activity status updates
-    function updateActivityStatusUI(status) {
-        activityStatus.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-        
-        // Update class for styling
-        activityStatus.className = '';
-        activityStatus.classList.add(`status-${status}`);
-    }
+    // ------ IPC EVENT LISTENERS ------
+    // Listen for current time updates from the main process
+    window.api.receive('timer:currentTime', (data) => {
+        if (data.elapsed !== undefined) {
+            // Set the accurate time from the server
+            seconds = data.elapsed;
+            
+            // Calculate time drift for future corrections
+            if (data.serverTime) {
+                const clientTime = Date.now();
+                lastServerTime = data.serverTime;
+                lastClientTime = clientTime;
+                
+                // Update timing vars for smoother updates
+                lastSyncTime = clientTime;
+            }
+            
+            // Update display immediately
+            const formattedTime = formatTime(seconds);
+            timeDisplay.textContent = formattedTime;
+        }
+    });
     
     // Listen for timer updates from the main process
     window.api.receive('timer:update', (data) => {
@@ -219,7 +291,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Start the timer display
                 resetTimer();
-                timerInterval = setInterval(updateTimerDisplay, 1000);
+                if (!timerInterval) {
+                    timerInterval = setInterval(updateTimerDisplay, 200); // More frequent updates for smoother display
+                }
+                
+                // Initialize timing variables
+                lastSyncTime = Date.now();
+                lastClientTime = Date.now();
+                if (data.serverTime) {
+                    lastServerTime = data.serverTime;
+                }
                 
                 // Update UI - hide Start, show Pause and Stop
                 startButton.classList.add('hidden');
@@ -239,16 +320,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateActivityStatusUI('active');
                 }
                 idleAlertShown = false;
+                
+                // Immediately get the current time for display
+                window.api.send('timer:getCurrentTime', { username: currentUsername });
                 break;
                 
             case 'paused':
                 timerRunning = false;
                 
-                // Stop the timer display
-                if (timerInterval) {
-                    clearInterval(timerInterval);
-                    timerInterval = null;
-                }
+                // We keep the timer interval but stop incrementing in updateTimerDisplay
                 
                 // Update UI - show Resume instead of Pause
                 pauseButton.textContent = 'Resume';
@@ -257,13 +337,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 stopButton.classList.remove('hidden');
                 stopButton.disabled = false;
                 startButton.classList.add('hidden');
+                
+                // Immediately get the current time for display
+                window.api.send('timer:getCurrentTime', { username: currentUsername });
                 break;
                 
             case 'resumed':
                 timerRunning = true;
                 
-                // Resume the timer display
-                timerInterval = setInterval(updateTimerDisplay, 1000);
+                // Reset timing variables for smoother counting
+                lastSyncTime = Date.now();
+                lastClientTime = Date.now();
+                
+                // Make sure timer display is running
+                if (!timerInterval) {
+                    timerInterval = setInterval(updateTimerDisplay, 200);
+                }
                 
                 // Update UI - show Pause again
                 pauseButton.textContent = 'Pause';
@@ -273,6 +362,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 stopButton.disabled = false;
                 startButton.classList.add('hidden');
                 idleAlertShown = false;
+                
+                // Immediately get the current time for display
+                window.api.send('timer:getCurrentTime', { username: currentUsername });
                 break;
                 
             case 'stopped':
@@ -310,14 +402,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     activeTimeEntryId = data.timeEntryId;
                     currentUserId = data.userId;
                     
-                    // Calculate seconds elapsed
-                    const startTime = new Date(data.startTime).getTime();
-                    const now = Date.now();
-                    seconds = Math.floor((now - startTime) / 1000);
+                    // Set up timing variables
+                    lastSyncTime = Date.now();
+                    lastClientTime = Date.now();
                     
-                    // Start the timer display
-                    timeDisplay.textContent = formatTime(seconds);
-                    timerInterval = setInterval(updateTimerDisplay, 1000);
+                    // Start the timer display with a placeholder value
+                    // We'll update it when we get the current time
+                    timeDisplay.textContent = '00:00:00';
+                    if (!timerInterval) {
+                        timerInterval = setInterval(updateTimerDisplay, 200);
+                    }
+                    
+                    // Request accurate time immediately
+                    window.api.send('timer:getCurrentTime', { username: currentUsername });
                     
                     // Update UI - hide Start, show Pause and Stop
                     startButton.classList.add('hidden');
@@ -329,7 +426,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Set client and project selection
                     clientSelect.value = data.clientId;
                     clientSelect.dispatchEvent(new Event('change'));
-                    projectSelect.value = data.projectId;
+                    
+                    // Need to wait for projects to load before selecting
+                    setTimeout(() => {
+                        if (projectSelect.querySelector(`option[value="${data.projectId}"]`)) {
+                            projectSelect.value = data.projectId;
+                        }
+                    }, 500);
                     
                     // Disable selection while timer is running
                     clientSelect.disabled = true;
@@ -353,17 +456,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 break;
                 
-                case 'idleDiscarded':
-                    // Handle when idle time is discarded
-                    // The backend has already handled pausing the timer at the idle start time
-                    timerRunning = false; // Add this line
-                    pauseButton.textContent = 'Resume';
-                    pauseButton.classList.remove('hidden');
-                    pauseButton.disabled = false;
-                    stopButton.classList.remove('hidden');
-                    stopButton.disabled = false;
-                    startButton.classList.add('hidden');
-                    break;
+            case 'idleDiscarded':
+                // Handle when idle time is discarded
+                // The backend has already handled pausing the timer at the idle start time
+                timerRunning = false;
+                
+                // Update UI to reflect paused state
+                pauseButton.textContent = 'Resume';
+                pauseButton.classList.remove('hidden');
+                pauseButton.disabled = false;
+                stopButton.classList.remove('hidden');
+                stopButton.disabled = false;
+                startButton.classList.add('hidden');
+                
+                // Immediately request the current time to update the display accurately
+                window.api.send('timer:getCurrentTime', { username: currentUsername });
+                break;
         }
     });
     
@@ -417,12 +525,4 @@ document.addEventListener('DOMContentLoaded', () => {
             updateActivityStatusUI(data.status);
         }
     });
-    
-    // Helper function to format time
-    function formatTime(totalSeconds) {
-        const hours = Math.floor(totalSeconds / 3600).toString().padStart(2, '0');
-        const minutes = Math.floor((totalSeconds % 3600) / 60).toString().padStart(2, '0');
-        const seconds = (totalSeconds % 60).toString().padStart(2, '0');
-        return `${hours}:${minutes}:${seconds}`;
-    }
 });

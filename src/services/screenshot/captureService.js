@@ -199,7 +199,7 @@ class CaptureService {
       const screenshot = await Screenshot.create(timeEntryId, thumbnail);
       
       // Notify all windows about the screenshot
-      this.notifyScreenshotTaken(userId, screenshot.id);
+      this.notifyScreenshotTaken();
       
       return true;
     } catch (error) {
@@ -210,22 +210,20 @@ class CaptureService {
 
   /**
    * Notify all windows that a screenshot was taken
-   * @param {number} userId - The user ID
-   * @param {number} screenshotId - The screenshot ID
+   * No parameters needed - simplified to avoid serialization issues
    */
-  // Modified notifyScreenshotTaken function in captureService.js
-notifyScreenshotTaken(userId, screenshotId) {
-  this.windows.forEach(window => {
-    if (!window.isDestroyed()) {
-      // Only send simple serializable data
-      window.webContents.send('screenshot:taken', { 
-        userId: userId,
-        screenshotId: screenshotId,
-        timestamp: new Date().toISOString()
+  notifyScreenshotTaken() {
+    try {
+      this.windows.forEach(window => {
+        if (!window.isDestroyed()) {
+          // Send a simple notification with no complex data
+          window.webContents.send('screenshot:taken');
+        }
       });
+    } catch (error) {
+      console.error('Error sending screenshot notification:', error);
     }
-  });
-}
+  }
 
   /**
    * Delete a screenshot
