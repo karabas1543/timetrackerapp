@@ -19,20 +19,20 @@ class Client {
    * @returns {Promise<Client>} - The client instance
    */
   async save() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const clientData = {
       name: this.name
     };
 
-    if (this.id) {
-      // Update existing client
-      await dbManager.update('clients', this.id, clientData);
-    } else {
-      // Create new client
-      this.id = await dbManager.insert('clients', clientData);
-    }
+    // Use transaction to ensure data integrity
+    await dbManager.withTransaction(async () => {
+      if (this.id) {
+        // Update existing client
+        await dbManager.update('clients', this.id, clientData);
+      } else {
+        // Create new client
+        this.id = await dbManager.insert('clients', clientData);
+      }
+    });
 
     return this;
   }
@@ -43,9 +43,6 @@ class Client {
    * @returns {Promise<Client|null>} - Client instance or null if not found
    */
   static async getById(id) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const clientData = await dbManager.getById('clients', id);
     return clientData ? new Client(clientData) : null;
   }
@@ -56,9 +53,6 @@ class Client {
    * @returns {Promise<Client|null>} - Client instance or null if not found
    */
   static async getByName(name) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM clients WHERE name = ?';
     const results = await dbManager.runQuery(query, [name]);
     
@@ -70,9 +64,6 @@ class Client {
    * @returns {Promise<Array>} - Array of Client instances
    */
   static async getAll() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const clients = await dbManager.getAll('clients');
     return clients.map(clientData => new Client(clientData));
   }
@@ -96,10 +87,19 @@ class Client {
   async delete() {
     if (!this.id) return false;
 
-    // Ensure database is initialized
-    dbManager.initialize();
-
-    return await dbManager.delete('clients', this.id);
+    return await dbManager.withTransaction(async () => {
+      // First, get all projects for this client
+      const Project = require('./project');
+      const projects = await Project.getByClientId(this.id);
+      
+      // Delete all projects for this client first (each project will handle its own dependencies)
+      for (const project of projects) {
+        await project.delete();
+      }
+      
+      // Then delete the client itself
+      return await dbManager.delete('clients', this.id);
+    });
   }
 
   /**
@@ -121,6 +121,22 @@ class Client {
     });
     
     return await project.save();
+  }
+
+  /**
+   * Find or create a client by name
+   * @param {string} name - The client name
+   * @returns {Promise<Client>} - The Client instance
+   */
+  static async findOrCreate(name) {
+    let client = await Client.getByName(name);
+    
+    if (!client) {
+      client = new Client({ name });
+      await client.save();
+    }
+    
+    return client;
   }
 }
 

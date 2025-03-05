@@ -20,21 +20,20 @@ class User {
    * @returns {Promise<User>} - The user instance
    */
   async save() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const userData = {
       username: this.username,
       is_admin: this.is_admin
     };
 
-    if (this.id) {
-      // Update existing user
-      await dbManager.update('users', this.id, userData);
-    } else {
-      // Create new user
-      this.id = await dbManager.insert('users', userData);
-    }
+    await dbManager.withTransaction(async () => {
+      if (this.id) {
+        // Update existing user
+        await dbManager.update('users', this.id, userData);
+      } else {
+        // Create new user
+        this.id = await dbManager.insert('users', userData);
+      }
+    });
 
     return this;
   }
@@ -45,9 +44,6 @@ class User {
    * @returns {Promise<User|null>} - User instance or null if not found
    */
   static async getById(id) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const userData = await dbManager.getById('users', id);
     return userData ? new User(userData) : null;
   }
@@ -58,9 +54,6 @@ class User {
    * @returns {Promise<User|null>} - User instance or null if not found
    */
   static async getByUsername(username) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM users WHERE username = ?';
     const results = await dbManager.runQuery(query, [username]);
     
@@ -72,9 +65,6 @@ class User {
    * @returns {Promise<Array>} - Array of User instances
    */
   static async getAll() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const users = await dbManager.getAll('users');
     return users.map(userData => new User(userData));
   }
@@ -86,17 +76,19 @@ class User {
    * @returns {Promise<User>} - The User instance
    */
   static async findOrCreate(username, isAdmin = false) {
-    let user = await User.getByUsername(username);
-    
-    if (!user) {
-      user = new User({
-        username: username,
-        is_admin: isAdmin ? 1 : 0
-      });
-      await user.save();
-    }
-    
-    return user;
+    return await dbManager.withTransaction(async () => {
+      let user = await User.getByUsername(username);
+      
+      if (!user) {
+        user = new User({
+          username: username,
+          is_admin: isAdmin ? 1 : 0
+        });
+        await user.save();
+      }
+      
+      return user;
+    });
   }
 
   /**
@@ -106,10 +98,61 @@ class User {
   async delete() {
     if (!this.id) return false;
 
-    // Ensure database is initialized
-    dbManager.initialize();
+    return await dbManager.withTransaction(async () => {
+      // First get all time entries for this user
+      const TimeEntry = require('./timeEntry');
+      const timeEntries = await TimeEntry.getByUserId(this.id);
+      
+      // Delete all time entries for this user
+      for (const timeEntry of timeEntries) {
+        await timeEntry.delete();
+      }
+      
+      // Then delete the user itself
+      return await dbManager.delete('users', this.id);
+    });
+  }
 
-    return await dbManager.delete('users', this.id);
+  /**
+   * Get all time entries for this user
+   * @returns {Promise<Array>} - Array of TimeEntry instances
+   */
+  async getTimeEntries() {
+    if (!this.id) return [];
+
+    // Import the TimeEntry model to avoid circular dependencies
+    const TimeEntry = require('./timeEntry');
+    return await TimeEntry.getByUserId(this.id);
+  }
+
+  /**
+   * Check if user is admin
+   * @returns {boolean} - True if user is an admin
+   */
+  isAdmin() {
+    return this.is_admin === 1;
+  }
+  
+  /**
+   * Get all screenshots taken by this user
+   * @returns {Promise<Array>} - Array of Screenshot instances
+   */
+  async getScreenshots() {
+    if (!this.id) return [];
+    
+    // Import the Screenshot model to avoid circular dependencies
+    const Screenshot = require('./screenshot');
+    return await Screenshot.getByUserId(this.id);
+  }
+  
+  /**
+   * Set admin status
+   * @param {boolean} isAdmin - Whether the user should be an admin
+   * @returns {Promise<User>} - The updated user
+   */
+  async setAdmin(isAdmin) {
+    this.is_admin = isAdmin ? 1 : 0;
+    return await this.save();
   }
 }
 

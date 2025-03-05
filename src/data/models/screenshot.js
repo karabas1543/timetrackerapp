@@ -25,9 +25,6 @@ class Screenshot {
    * @returns {Promise<Screenshot>} - The screenshot instance
    */
   async save() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     // Validate required fields
     if (!this.time_entry_id || !this.filepath) {
       throw new Error('Screenshot requires time_entry_id and filepath');
@@ -40,29 +37,30 @@ class Screenshot {
       is_deleted: this.is_deleted
     };
 
-    if (this.id) {
-      // Update existing screenshot
-      await dbManager.update('screenshots', this.id, screenshotData);
-    } else {
-      // Create new screenshot
-      this.id = await dbManager.insert('screenshots', screenshotData);
-      
-      // Add to sync queue
-      await this.addToSyncQueue();
-    }
+    // Save screenshot and add to sync queue in a single transaction
+    await dbManager.withTransaction(async () => {
+      if (this.id) {
+        // Update existing screenshot
+        await dbManager.update('screenshots', this.id, screenshotData);
+      } else {
+        // Create new screenshot
+        this.id = await dbManager.insert('screenshots', screenshotData);
+        
+        // Add to sync queue in the same transaction
+        await this.addToSyncQueueInternal();
+      }
+    });
 
     return this;
   }
 
   /**
-  * Add this screenshot to the sync queue
-  */
-async addToSyncQueue() {
-  if (!this.id) return;
-
-  try {
-    // Make sure database is initialized
-    dbManager.initialize();
+   * Internal method to add screenshot to sync queue (used within transactions)
+   * @returns {Promise<void>}
+   * @private
+   */
+  async addToSyncQueueInternal() {
+    if (!this.id) return;
     
     // Check if entry already exists in sync_status
     const checkQuery = 'SELECT * FROM sync_status WHERE entity_type = ? AND entity_id = ?';
@@ -83,10 +81,23 @@ async addToSyncQueue() {
     
     await dbManager.insert('sync_status', syncData);
     console.log(`Added screenshot ${this.id} to sync queue`);
-  } catch (error) {
-    console.error(`Error adding screenshot ${this.id} to sync queue:`, error);
   }
-}
+
+  /**
+   * Add this screenshot to the sync queue (public method for external use)
+   * @returns {Promise<void>}
+   */
+  async addToSyncQueue() {
+    if (!this.id) return;
+
+    try {
+      await dbManager.withTransaction(async () => {
+        await this.addToSyncQueueInternal();
+      });
+    } catch (error) {
+      console.error(`Error adding screenshot ${this.id} to sync queue:`, error);
+    }
+  }
 
   /**
    * Create a new screenshot for a time entry
@@ -167,9 +178,6 @@ async addToSyncQueue() {
    * @returns {Promise<Screenshot|null>} - Screenshot instance or null if not found
    */
   static async getById(id) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const screenshotData = await dbManager.getById('screenshots', id);
     return screenshotData ? new Screenshot(screenshotData) : null;
   }
@@ -181,9 +189,6 @@ async addToSyncQueue() {
    * @returns {Promise<Array>} - Array of Screenshot instances
    */
   static async getByTimeEntryId(timeEntryId, includeDeleted = false) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     let query = 'SELECT * FROM screenshots WHERE time_entry_id = ?';
     
     if (!includeDeleted) {
@@ -203,9 +208,6 @@ async addToSyncQueue() {
    * @returns {Promise<Array>} - Array of Screenshot instances
    */
   static async getByUserId(userId, includeDeleted = false) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     let query = `
       SELECT s.* 
       FROM screenshots s
@@ -230,20 +232,27 @@ async addToSyncQueue() {
   async delete() {
     if (!this.id) return false;
 
-    // Ensure database is initialized
-    dbManager.initialize();
-
-    // Try to delete the actual file
-    if (this.filepath && fs.existsSync(this.filepath)) {
-      try {
-        fs.unlinkSync(this.filepath);
-      } catch (error) {
-        console.error('Failed to delete screenshot file:', error);
+    return await dbManager.withTransaction(async () => {
+      // Try to delete the actual file
+      if (this.filepath && fs.existsSync(this.filepath)) {
+        try {
+          fs.unlinkSync(this.filepath);
+        } catch (error) {
+          console.error('Failed to delete screenshot file:', error);
+          // Continue with database deletion even if file deletion fails
+        }
       }
-    }
 
-    // Delete from database
-    return await dbManager.delete('screenshots', this.id);
+      // Delete any sync queue entries first
+      const syncQuery = `
+        DELETE FROM sync_status 
+        WHERE entity_type = 'screenshot' AND entity_id = ?
+      `;
+      await dbManager.runQuery(syncQuery, [this.id]);
+
+      // Delete from database
+      return await dbManager.delete('screenshots', this.id);
+    });
   }
 }
 

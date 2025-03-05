@@ -28,9 +28,6 @@ class TimeEntry {
    * @returns {Promise<TimeEntry>} - The time entry instance
    */
   async save() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     // Validate required fields
     if (!this.user_id || !this.client_id || !this.project_id) {
       throw new Error('TimeEntry requires user_id, client_id, and project_id');
@@ -56,19 +53,52 @@ class TimeEntry {
       is_manual: this.is_manual
     };
 
-    if (this.id) {
-      // Mark as edited when updating an existing entry
-      timeEntryData.is_edited = 1;
-      await dbManager.update('time_entries', this.id, timeEntryData);
-    } else {
-      // Create new time entry
-      this.id = await dbManager.insert('time_entries', timeEntryData);
-      
-      // Add to sync queue
-      await this.addToSyncQueue();
-    }
+    // Execute save operation and sync queue update in a single transaction
+    await dbManager.withTransaction(async () => {
+      if (this.id) {
+        // Mark as edited when updating an existing entry
+        timeEntryData.is_edited = 1;
+        await dbManager.update('time_entries', this.id, timeEntryData);
+      } else {
+        // Create new time entry
+        this.id = await dbManager.insert('time_entries', timeEntryData);
+        
+        // Add to sync queue in the same transaction
+        await this.addToSyncQueueInternal();
+      }
+    });
 
     return this;
+  }
+
+  /**
+   * Internal method to add this entry to sync queue (used within transactions)
+   * @returns {Promise<void>}
+   * @private
+   */
+  async addToSyncQueueInternal() {
+    if (!this.id) return;
+
+    const syncData = {
+      entity_type: 'time_entry',
+      entity_id: this.id,
+      is_synced: 0,
+      last_sync_attempt: null
+    };
+    
+    await dbManager.insert('sync_status', syncData);
+  }
+
+  /**
+   * Add this time entry to the sync queue (public method for external use)
+   * @returns {Promise<void>}
+   */
+  async addToSyncQueue() {
+    if (!this.id) return;
+
+    await dbManager.withTransaction(async () => {
+      await this.addToSyncQueueInternal();
+    });
   }
 
   /**
@@ -115,33 +145,11 @@ class TimeEntry {
   }
 
   /**
-   * Add this time entry to the sync queue
-   * @returns {Promise<void>}
-   */
-  async addToSyncQueue() {
-    if (!this.id) return;
-
-    dbManager.initialize();
-    
-    const syncData = {
-      entity_type: 'time_entry',
-      entity_id: this.id,
-      is_synced: 0,
-      last_sync_attempt: null
-    };
-    
-    await dbManager.insert('sync_status', syncData);
-  }
-
-  /**
    * Get a time entry by ID
    * @param {number} id - The time entry ID
    * @returns {Promise<TimeEntry|null>} - TimeEntry instance or null if not found
    */
   static async getById(id) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const timeEntryData = await dbManager.getById('time_entries', id);
     return timeEntryData ? new TimeEntry(timeEntryData) : null;
   }
@@ -152,9 +160,6 @@ class TimeEntry {
    * @returns {Promise<Array>} - Array of TimeEntry instances
    */
   static async getByUserId(userId) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM time_entries WHERE user_id = ?';
     const timeEntries = await dbManager.runQuery(query, [userId]);
     
@@ -167,9 +172,6 @@ class TimeEntry {
    * @returns {Promise<Array>} - Array of TimeEntry instances
    */
   static async getByProjectId(projectId) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM time_entries WHERE project_id = ?';
     const timeEntries = await dbManager.runQuery(query, [projectId]);
     
@@ -182,9 +184,6 @@ class TimeEntry {
    * @returns {Promise<Array>} - Array of TimeEntry instances
    */
   static async getByClientId(clientId) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM time_entries WHERE client_id = ?';
     const timeEntries = await dbManager.runQuery(query, [clientId]);
     
@@ -199,9 +198,6 @@ class TimeEntry {
    * @returns {Promise<Array>} - Array of TimeEntry instances
    */
   static async getByDateRange(userId, startDate, endDate) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = `
       SELECT * FROM time_entries 
       WHERE user_id = ? 
@@ -219,9 +215,6 @@ class TimeEntry {
    * @returns {Promise<TimeEntry|null>} - Active TimeEntry or null
    */
   static async getActive(userId) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = `
       SELECT * FROM time_entries 
       WHERE user_id = ? 
@@ -241,10 +234,17 @@ class TimeEntry {
   async delete() {
     if (!this.id) return false;
 
-    // Ensure database is initialized
-    dbManager.initialize();
-
-    return await dbManager.delete('time_entries', this.id);
+    return await dbManager.withTransaction(async () => {
+      // First, delete any related records in sync_status
+      const syncQuery = `
+        DELETE FROM sync_status 
+        WHERE entity_type = 'time_entry' AND entity_id = ?
+      `;
+      await dbManager.runQuery(syncQuery, [this.id]);
+      
+      // Then delete the time entry itself
+      return await dbManager.delete('time_entries', this.id);
+    });
   }
 
   /**
@@ -265,8 +265,6 @@ class TimeEntry {
    */
   async getActivityLogs() {
     if (!this.id) return [];
-
-    dbManager.initialize();
     
     const query = 'SELECT * FROM activity_logs WHERE time_entry_id = ? ORDER BY timestamp ASC';
     return await dbManager.runQuery(query, [this.id]);

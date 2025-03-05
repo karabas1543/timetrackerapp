@@ -20,9 +20,6 @@ class Project {
    * @returns {Promise<Project>} - The project instance
    */
   async save() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     if (!this.client_id) {
       throw new Error('Project must have a client_id');
     }
@@ -32,13 +29,15 @@ class Project {
       name: this.name
     };
 
-    if (this.id) {
-      // Update existing project
-      await dbManager.update('projects', this.id, projectData);
-    } else {
-      // Create new project
-      this.id = await dbManager.insert('projects', projectData);
-    }
+    await dbManager.withTransaction(async () => {
+      if (this.id) {
+        // Update existing project
+        await dbManager.update('projects', this.id, projectData);
+      } else {
+        // Create new project
+        this.id = await dbManager.insert('projects', projectData);
+      }
+    });
 
     return this;
   }
@@ -49,9 +48,6 @@ class Project {
    * @returns {Promise<Project|null>} - Project instance or null if not found
    */
   static async getById(id) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const projectData = await dbManager.getById('projects', id);
     return projectData ? new Project(projectData) : null;
   }
@@ -62,9 +58,6 @@ class Project {
    * @returns {Promise<Array>} - Array of Project instances
    */
   static async getByClientId(clientId) {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const query = 'SELECT * FROM projects WHERE client_id = ?';
     const projects = await dbManager.runQuery(query, [clientId]);
     
@@ -76,9 +69,6 @@ class Project {
    * @returns {Promise<Array>} - Array of Project instances
    */
   static async getAll() {
-    // Ensure database is initialized
-    dbManager.initialize();
-
     const projects = await dbManager.getAll('projects');
     return projects.map(projectData => new Project(projectData));
   }
@@ -102,10 +92,19 @@ class Project {
   async delete() {
     if (!this.id) return false;
 
-    // Ensure database is initialized
-    dbManager.initialize();
-
-    return await dbManager.delete('projects', this.id);
+    return await dbManager.withTransaction(async () => {
+      // First get any time entries for this project
+      const TimeEntry = require('./timeEntry');
+      const timeEntries = await TimeEntry.getByProjectId(this.id);
+      
+      // Delete all time entries for this project
+      for (const timeEntry of timeEntries) {
+        await timeEntry.delete();
+      }
+      
+      // Then delete the project itself
+      return await dbManager.delete('projects', this.id);
+    });
   }
 
   /**
@@ -118,6 +117,29 @@ class Project {
     // Import the TimeEntry model to avoid circular dependencies
     const TimeEntry = require('./timeEntry');
     return await TimeEntry.getByProjectId(this.id);
+  }
+
+  /**
+   * Find or create a project by name and client ID
+   * @param {number} clientId - The client ID
+   * @param {string} name - The project name
+   * @returns {Promise<Project>} - The Project instance
+   */
+  static async findOrCreate(clientId, name) {
+    const query = 'SELECT * FROM projects WHERE client_id = ? AND name = ?';
+    const results = await dbManager.runQuery(query, [clientId, name]);
+    
+    if (results.length > 0) {
+      return new Project(results[0]);
+    } else {
+      const project = new Project({
+        client_id: clientId,
+        name: name
+      });
+      
+      await project.save();
+      return project;
+    }
   }
 }
 
