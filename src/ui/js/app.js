@@ -9,7 +9,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const clientSelect = document.getElementById('client-select');
     const projectSelect = document.getElementById('project-select');
     const startButton = document.getElementById('start-button');
-    const startButtonOriginalText = startButton.textContent;
     const pauseButton = document.getElementById('pause-button');
     const stopButton = document.getElementById('stop-button');
     const timeDisplay = document.getElementById('time-display');
@@ -24,9 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUserId = null;
     let idleAlertShown = false;
     
-    // Disable timer control buttons initially
-    pauseButton.disabled = true;
-    stopButton.disabled = true;
+    // Ensure buttons start in correct state
+    pauseButton.classList.add('hidden');
+    stopButton.classList.add('hidden');
     
     // Load clients when the app starts
     async function loadClients() {
@@ -156,8 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (timerRunning) {
             // Send pause timer command to main process
             window.api.send('timer:pause', { username: currentUsername });
-            
-            // UI will update when we get the timer:update event back
+        } else {
+            // Timer is already paused, so resume it
+            window.api.send('timer:resume', { username: currentUsername });
         }
     });
     
@@ -176,8 +176,6 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Clear notes
             entryNotes.value = '';
-            
-            // UI will update when we get the timer:update event back
         }
     });
     
@@ -223,9 +221,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 resetTimer();
                 timerInterval = setInterval(updateTimerDisplay, 1000);
                 
-                // Update UI
-                startButton.disabled = true;
+                // Update UI - hide Start, show Pause and Stop
+                startButton.classList.add('hidden');
+                pauseButton.classList.remove('hidden');
+                pauseButton.textContent = 'Pause';
                 pauseButton.disabled = false;
+                stopButton.classList.remove('hidden');
                 stopButton.disabled = false;
                 
                 // Disable client and project selection while timer is running
@@ -237,27 +238,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.activityTrackerUI.startTracking(currentUserId);
                     updateActivityStatusUI('active');
                 }
-
                 idleAlertShown = false;
                 break;
                 
-                case 'paused':
-                    timerRunning = false;
-                    
-                    // Stop the timer display
-                    if (timerInterval) {
-                        clearInterval(timerInterval);
-                        timerInterval = null;
-                    }
-                    
-                    // Update UI
-                    startButton.disabled = false;
-                    startButton.textContent = 'Resume';
-                    pauseButton.disabled = true;
-                    stopButton.disabled = false;
-                    
-                    // Note: we're keeping activeTimeEntryId so we know which timer to resume
-                    break;
+            case 'paused':
+                timerRunning = false;
+                
+                // Stop the timer display
+                if (timerInterval) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                }
+                
+                // Update UI - show Resume instead of Pause
+                pauseButton.textContent = 'Resume';
+                pauseButton.classList.remove('hidden');
+                pauseButton.disabled = false;
+                stopButton.classList.remove('hidden');
+                stopButton.disabled = false;
+                startButton.classList.add('hidden');
+                break;
                 
             case 'resumed':
                 timerRunning = true;
@@ -265,10 +265,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Resume the timer display
                 timerInterval = setInterval(updateTimerDisplay, 1000);
                 
-                // Update UI
-                startButton.disabled = true;
+                // Update UI - show Pause again
+                pauseButton.textContent = 'Pause';
+                pauseButton.classList.remove('hidden');
                 pauseButton.disabled = false;
+                stopButton.classList.remove('hidden');
                 stopButton.disabled = false;
+                startButton.classList.add('hidden');
                 idleAlertShown = false;
                 break;
                 
@@ -279,10 +282,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Reset the timer display
                 resetTimer();
                 
-                // Update UI
+                // Update UI - show Start, hide Pause and Stop
+                startButton.classList.remove('hidden');
                 startButton.disabled = false;
-                startButton.textContent = startButtonOriginalText;
+                pauseButton.textContent = 'Pause';
+                pauseButton.classList.add('hidden');
                 pauseButton.disabled = true;
+                stopButton.classList.add('hidden');
                 stopButton.disabled = true;
                 
                 // Enable client and project selection
@@ -294,7 +300,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.activityTrackerUI.stopTracking();
                     updateActivityStatusUI('inactive');
                 }
-
                 idleAlertShown = false;
                 break;
                 
@@ -314,9 +319,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     timeDisplay.textContent = formatTime(seconds);
                     timerInterval = setInterval(updateTimerDisplay, 1000);
                     
-                    // Update UI
-                    startButton.disabled = true;
+                    // Update UI - hide Start, show Pause and Stop
+                    startButton.classList.add('hidden');
+                    pauseButton.classList.remove('hidden');
                     pauseButton.disabled = false;
+                    stopButton.classList.remove('hidden');
                     stopButton.disabled = false;
                     
                     // Set client and project selection
@@ -335,8 +342,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } else {
                     currentUserId = data.userId;
+                    
+                    // Ensure buttons are in correct state when no timer is active
+                    startButton.classList.remove('hidden');
+                    startButton.disabled = false;
+                    pauseButton.classList.add('hidden');
+                    pauseButton.disabled = true;
+                    stopButton.classList.add('hidden');
+                    stopButton.disabled = true;
                 }
                 break;
+                
+                case 'idleDiscarded':
+                    // Handle when idle time is discarded
+                    // The backend has already handled pausing the timer at the idle start time
+                    timerRunning = false; // Add this line
+                    pauseButton.textContent = 'Resume';
+                    pauseButton.classList.remove('hidden');
+                    pauseButton.disabled = false;
+                    stopButton.classList.remove('hidden');
+                    stopButton.disabled = false;
+                    startButton.classList.add('hidden');
+                    break;
         }
     });
     
@@ -347,28 +374,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Listen for idle detection
-window.api.receive('idle:detected', (data) => {
-    const idleTime = data.idleTime;
-    const minutes = Math.floor(idleTime / 60);
-    
-    // Show alert if user has been idle for 5+ minutes and alert hasn't been shown yet
-    if (minutes >= 5 && timerRunning && !idleAlertShown) {
-        idleAlertShown = true; // Prevent further alerts until reset
+    window.api.receive('idle:detected', (data) => {
+        const idleTime = data.idleTime;
+        const minutes = Math.floor(idleTime / 60);
         
-        const keepTime = confirm(`You've been idle for ${minutes} minutes. Do you want to keep this idle time?\n\n• Click OK to keep tracking this time\n• Click Cancel to discard idle time`);
-        
-        if (!keepTime) {
-            // User chose to discard idle time - pause timer at idle start point
-            window.api.send('timer:discardIdle', { 
-                username: currentUsername,
-                idleStartTime: Date.now() - (idleTime * 1000) // Calculate when idle began
-            });
-        } else {
-            // User wants to keep the idle time - just update the activity status
-            // No action needed, timer keeps running
+        // Show alert if user has been idle for 5+ minutes and alert hasn't been shown yet
+        if (minutes >= 5 && timerRunning && !idleAlertShown) {
+            idleAlertShown = true; // Prevent further alerts until reset
+            
+            const keepTime = confirm(`You've been idle for ${minutes} minutes. Do you want to keep this idle time?\n\n• Click OK to keep tracking this time\n• Click Cancel to discard idle time`);
+            
+            if (!keepTime) {
+                // User chose to discard idle time - pause timer at idle start point
+                window.api.send('timer:discardIdle', { 
+                    username: currentUsername,
+                    idleStartTime: Date.now() - (idleTime * 1000) // Calculate when idle began
+                });
+            } else {
+                // User wants to keep the idle time - just update the activity status
+                // No action needed, timer keeps running
+            }
         }
-    }
-});
+    });
     
     // Listen for screenshot notifications
     window.api.receive('screenshot:taken', () => {

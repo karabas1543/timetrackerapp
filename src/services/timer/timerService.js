@@ -12,6 +12,11 @@ class TimerService extends EventEmitter {
     this.activeTimers = new Map(); // userId -> timeEntry
     this.timerIntervals = new Map(); // userId -> interval
     this.initialized = false;
+    
+    // Add these for tracking exact timing
+    this.timerStartTimes = new Map(); // userId -> timestamp in ms
+    this.timerPauseTimes = new Map(); // userId -> timestamp in ms
+    this.timerElapsed = new Map(); // userId -> elapsed time in ms before resuming
   }
 
   /**
@@ -39,6 +44,10 @@ class TimerService extends EventEmitter {
           // Emit event for other services
           this.emit('timer:started', timeEntry.user_id, timeEntry.id);
           
+          // Store the exact start time
+          this.timerStartTimes.set(timeEntry.user_id, Date.now());
+          this.timerElapsed.set(timeEntry.user_id, 0);
+          
           event.sender.send('timer:update', { 
             action: 'started',
             timeEntryId: timeEntry.id,
@@ -63,6 +72,9 @@ class TimerService extends EventEmitter {
           // Emit event for other services
           this.emit('timer:paused', result.userId);
           
+          // Store the pause time for accurate resuming
+          this.timerPauseTimes.set(result.userId, Date.now());
+          
           event.sender.send('timer:update', { 
             action: 'paused',
             timeEntryId: result.timeEntryId
@@ -84,6 +96,22 @@ class TimerService extends EventEmitter {
         .then(timeEntry => {
           // Emit event for other services
           this.emit('timer:resumed', timeEntry.user_id, timeEntry.id);
+          
+          // Calculate elapsed time up to this point and update timer start time
+          if (this.timerPauseTimes.has(timeEntry.user_id)) {
+            const currentElapsed = this.timerElapsed.get(timeEntry.user_id) || 0;
+            const pauseTime = this.timerPauseTimes.get(timeEntry.user_id);
+            const pauseDuration = Date.now() - pauseTime;
+            
+            // Store total elapsed time before this resume
+            this.timerElapsed.set(timeEntry.user_id, currentElapsed);
+            
+            // Reset start time to now
+            this.timerStartTimes.set(timeEntry.user_id, Date.now());
+            
+            // Clean up pause time
+            this.timerPauseTimes.delete(timeEntry.user_id);
+          }
           
           event.sender.send('timer:update', { 
             action: 'resumed',
@@ -107,6 +135,11 @@ class TimerService extends EventEmitter {
         .then(result => {
           // Emit event for other services
           this.emit('timer:stopped', result.userId);
+          
+          // Clean up timing data
+          this.timerStartTimes.delete(result.userId);
+          this.timerPauseTimes.delete(result.userId);
+          this.timerElapsed.delete(result.userId);
           
           event.sender.send('timer:update', { 
             action: 'stopped',
@@ -142,26 +175,42 @@ class TimerService extends EventEmitter {
         });
     });
 
-    // Add this to the registerIpcHandlers method (around line 130)
-ipcMain.on('timer:discardIdle', (event, data) => {
-  const { username, idleStartTime } = data;
-  this.discardIdleTime(username, idleStartTime)
-    .then(result => {
-      // Notify the user that idle time was discarded
-      event.sender.send('timer:update', { 
-        action: 'idleDiscarded',
-        timeEntryId: result.timeEntryId,
-        startTime: result.startTime
-      });
-    })
-    .catch(error => {
-      console.error('Error discarding idle time:', error);
-      event.sender.send('timer:error', { 
-        action: 'discardIdle',
-        error: error.message
-      });
+    // Add this to the registerIpcHandlers method
+    ipcMain.on('timer:discardIdle', (event, data) => {
+      const { username, idleStartTime } = data;
+      this.discardIdleTime(username, idleStartTime)
+        .then(result => {
+          // Notify the user that idle time was discarded
+          event.sender.send('timer:update', { 
+            action: 'idleDiscarded',
+            timeEntryId: result.timeEntryId,
+            startTime: result.startTime
+          });
+        })
+        .catch(error => {
+          console.error('Error discarding idle time:', error);
+          event.sender.send('timer:error', { 
+            action: 'discardIdle',
+            error: error.message
+          });
+        });
     });
-});
+    
+    // Get current timer
+    ipcMain.on('timer:getCurrentTime', (event, data) => {
+      const { username } = data;
+      this.getCurrentTime(username)
+        .then(timeInfo => {
+          event.sender.send('timer:currentTime', timeInfo);
+        })
+        .catch(error => {
+          console.error('Error getting current time:', error);
+          event.sender.send('timer:error', { 
+            action: 'getCurrentTime',
+            error: error.message
+          });
+        });
+    });
     
     // Get timer status
     ipcMain.on('timer:status', (event, data) => {
@@ -181,6 +230,46 @@ ipcMain.on('timer:discardIdle', (event, data) => {
           });
         });
     });
+  }
+
+  /**
+   * Calculate the current elapsed time for a user
+   * @param {string} username - The username
+   * @returns {Promise<Object>} - Object with elapsed time in seconds
+   */
+  async getCurrentTime(username) {
+    const user = await User.getByUsername(username);
+    
+    if (!user || !this.activeTimers.has(user.id)) {
+      return { elapsed: 0 };
+    }
+
+    // Get the time entry
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    // Calculate the elapsed time
+    let elapsedTime = 0;
+    
+    if (this.timerStartTimes.has(user.id)) {
+      const prevElapsed = this.timerElapsed.get(user.id) || 0;
+      
+      if (this.timerPauseTimes.has(user.id)) {
+        // Timer is paused, use the pause time
+        const pauseTime = this.timerPauseTimes.get(user.id);
+        const startTime = this.timerStartTimes.get(user.id);
+        elapsedTime = prevElapsed + (pauseTime - startTime);
+      } else {
+        // Timer is running, use current time
+        const startTime = this.timerStartTimes.get(user.id);
+        elapsedTime = prevElapsed + (Date.now() - startTime);
+      }
+    }
+    
+    return {
+      elapsed: Math.floor(elapsedTime / 1000),
+      timeEntryId: timeEntry.id,
+      isRunning: !this.timerPauseTimes.has(user.id)
+    };
   }
 
   /**
@@ -289,8 +378,33 @@ ipcMain.on('timer:discardIdle', (event, data) => {
     // Get the active timer
     const timeEntry = this.activeTimers.get(user.id);
     
-    // Stop the timer
-    await timeEntry.stop();
+    // Calculate elapsed time for accuracy
+    let elapsedSeconds = 0;
+    if (this.timerStartTimes.has(user.id)) {
+      const prevElapsed = this.timerElapsed.get(user.id) || 0;
+      
+      if (this.timerPauseTimes.has(user.id)) {
+        // Timer is paused, use the pause time
+        const pauseTime = this.timerPauseTimes.get(user.id);
+        const startTime = this.timerStartTimes.get(user.id);
+        elapsedSeconds = Math.floor((prevElapsed + (pauseTime - startTime)) / 1000);
+      } else {
+        // Timer is running, use current time
+        const startTime = this.timerStartTimes.get(user.id);
+        elapsedSeconds = Math.floor((prevElapsed + (Date.now() - startTime)) / 1000);
+      }
+      
+      // Set the end time in the db model
+      timeEntry.end_time = new Date().toISOString();
+      timeEntry.duration = elapsedSeconds;
+    } else {
+      // Stop the timer normally if we don't have exact timing
+      await timeEntry.stop();
+      elapsedSeconds = timeEntry.duration;
+    }
+    
+    // Save the time entry
+    await timeEntry.save();
     
     // Clear any interval if it exists
     if (this.timerIntervals.has(user.id)) {
@@ -301,66 +415,65 @@ ipcMain.on('timer:discardIdle', (event, data) => {
     // Remove from active timers
     this.activeTimers.delete(user.id);
     
-    console.log(`Stopped timer for user ${username}, duration: ${timeEntry.duration}s`);
+    console.log(`Stopped timer for user ${username}, duration: ${elapsedSeconds}s`);
     
     return {
       timeEntryId: timeEntry.id,
-      duration: timeEntry.duration,
+      duration: elapsedSeconds,
       userId: user.id
     };
   }
 
-
   /**
- * Discard idle time by pausing the timer and creating a new entry
- * @param {string} username - The username
- * @param {number} idleStartTime - Timestamp when idle started
- * @returns {Promise<Object>} - Result with new timeEntryId
- */
-async discardIdleTime(username, idleStartTime) {
-  const user = await User.getByUsername(username);
-  
-  if (!user) {
-    throw new Error('User not found');
+   * Discard idle time by pausing the timer and creating a new entry
+   * @param {string} username - The username
+   * @param {number} idleStartTime - Timestamp when idle started
+   * @returns {Promise<Object>} - Result with new timeEntryId
+   */
+  async discardIdleTime(username, idleStartTime) {
+    const user = await User.getByUsername(username);
+    
+    if (!user) {
+      throw new Error('User not found');
+    }
+    
+    // Check if user has an active timer
+    if (!this.activeTimers.has(user.id)) {
+      throw new Error('No active timer to modify');
+    }
+    
+    // Get the active timer
+    const timeEntry = this.activeTimers.get(user.id);
+    
+    // Calculate elapsed time up to the idle start point
+    let elapsedSeconds = 0;
+    if (this.timerStartTimes.has(user.id)) {
+      const prevElapsed = this.timerElapsed.get(user.id) || 0;
+      const startTime = this.timerStartTimes.get(user.id);
+      const idleStart = new Date(idleStartTime).getTime();
+      
+      // Only count time up to the idle start
+      elapsedSeconds = Math.floor((prevElapsed + (idleStart - startTime)) / 1000);
+      
+      // Store the idle start time as our pause time
+      this.timerPauseTimes.set(user.id, idleStart);
+      
+      // Update the time entry
+      timeEntry.end_time = new Date(idleStartTime).toISOString();
+      timeEntry.duration = elapsedSeconds;
+      await timeEntry.save();
+    }
+    
+    // Emit event for stopping timers on services
+    this.emit('timer:idle', user.id, timeEntry.id, idleStartTime);
+    
+    // Return the paused status
+    return {
+      timeEntryId: timeEntry.id,
+      startTime: timeEntry.start_time,
+      userId: user.id
+    };
   }
-  
-  // Check if user has an active timer
-  if (!this.activeTimers.has(user.id)) {
-    throw new Error('No active timer to modify');
-  }
-  
-  // Get the active timer
-  const timeEntry = this.activeTimers.get(user.id);
-  
-  // Save the original data
-  const clientId = timeEntry.client_id;
-  const projectId = timeEntry.project_id;
-  const isBillable = timeEntry.is_billable;
-  
-  // Stop the current entry at the idle start time
-  timeEntry.end_time = new Date(idleStartTime).toISOString();
-  await timeEntry.save();
-  
-  // Clear any interval
-  if (this.timerIntervals.has(user.id)) {
-    clearInterval(this.timerIntervals.get(user.id));
-    this.timerIntervals.delete(user.id);
-  }
-  
-  // Emit event for stopping timers on services
-  this.emit('timer:stopped', user.id);
-  
-  // Remove from active timers
-  this.activeTimers.delete(user.id);
-  
-  // Return the paused status
-  return {
-    timeEntryId: timeEntry.id,
-    startTime: timeEntry.start_time,
-    userId: user.id
-  };
-}
-
 
   /**
    * Add notes to the current time entry
@@ -416,6 +529,11 @@ async discardIdleTime(username, idleStartTime) {
       if (activeEntry) {
         // Restore the active timer
         this.activeTimers.set(user.id, activeEntry);
+        
+        // Set up timing data for restored timer
+        const startTime = new Date(activeEntry.start_time).getTime();
+        this.timerStartTimes.set(user.id, Date.now());
+        this.timerElapsed.set(user.id, Date.now() - startTime);
         
         // Emit event for other services to know this timer is active
         this.emit('timer:restored', user.id, activeEntry.id);

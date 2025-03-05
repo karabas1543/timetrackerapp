@@ -213,16 +213,19 @@ class CaptureService {
    * @param {number} userId - The user ID
    * @param {number} screenshotId - The screenshot ID
    */
-  notifyScreenshotTaken(userId, screenshotId) {
-    this.windows.forEach(window => {
-      if (!window.isDestroyed()) {
-        window.webContents.send('screenshot:taken', { 
-          userId,
-          screenshotId
-        });
-      }
-    });
-  }
+  // Modified notifyScreenshotTaken function in captureService.js
+notifyScreenshotTaken(userId, screenshotId) {
+  this.windows.forEach(window => {
+    if (!window.isDestroyed()) {
+      // Only send simple serializable data
+      window.webContents.send('screenshot:taken', { 
+        userId: userId,
+        screenshotId: screenshotId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
+}
 
   /**
    * Delete a screenshot

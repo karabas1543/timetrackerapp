@@ -112,6 +112,18 @@ function setupServiceIntegration() {
     captureService.startCapturing(userId, timeEntryId);
     activityTracker.startTracking(userId, timeEntryId);
   });
+
+  // Listen for idle time discarded events
+timerService.on('timer:idle', async (userId, timeEntryId, idleStartTime) => {
+  console.log(`Idle time discarded for user ${userId}, deleting associated screenshots`);
+  
+  // Delete screenshots taken during idle period (from idle start until now)
+  await captureService.deleteScreenshotsInPeriod(
+    timeEntryId,
+    new Date(idleStartTime),
+    new Date()
+  );
+  });
 }
 
 // Create window when app is ready
