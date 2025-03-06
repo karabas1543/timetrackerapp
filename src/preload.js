@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld(
         'settings:get',
         'client:getAll',
         'project:getByClient',
-        'activity:update'  // New channel for activity updates
+        'activity:update',  // Fixed missing comma
         'admin:refreshData',
         'admin:exportReport'      
       ];
@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld(
         'client:data',
         'project:data',
         'settings:data',
-        'activity:statusChange'  // New channel for activity status changes
+        'activity:statusChange',  // Fixed missing comma
         'admin:dataUpdated',
         'admin:error'
       ];
@@ -54,7 +54,7 @@ contextBridge.exposeInMainWorld(
         'settings:getSync',
         'activity:getStatus',  // New channel for getting activity status
         'client:getAll',      // Add these for client/project data
-        'project:getByClient'
+        'project:getByClient', // Fixed missing comma
         'admin:getUsers',
         'admin:getTimeEntries',
         'admin:getScreenshots',

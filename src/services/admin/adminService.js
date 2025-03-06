@@ -50,51 +50,63 @@ class AdminService {
 
     // Get time entries for admin view (with filtering)
     ipcMain.handle('admin:getTimeEntries', async (event, data) => {
-      try {
-        const { userId, fromDate, toDate } = data;
-        
-        // Build the query based on filters
-        let query = `
-          SELECT t.*, 
-                 COUNT(s.id) as screenshot_count
-          FROM time_entries t
-          LEFT JOIN screenshots s ON t.id = s.time_entry_id AND s.is_deleted = 0
-        `;
-        
-        const params = [];
-        const conditions = [];
-        
-        // Add date range condition
-        if (fromDate && toDate) {
-          conditions.push('t.start_time >= ? AND (t.end_time <= ? OR t.end_time IS NULL)');
-          params.push(
-            new Date(fromDate).toISOString(), 
-            new Date(toDate + 'T23:59:59').toISOString()
-          );
+        try {
+          const { userId, fromDate, toDate, clientId, projectId } = data;
+          
+          // Build the query based on filters
+          let query = `
+            SELECT t.*, 
+                   COUNT(s.id) as screenshot_count
+            FROM time_entries t
+            LEFT JOIN screenshots s ON t.id = s.time_entry_id AND s.is_deleted = 0
+          `;
+          
+          const params = [];
+          const conditions = [];
+          
+          // Add date range condition
+          if (fromDate && toDate) {
+            conditions.push('t.start_time >= ? AND (t.end_time <= ? OR t.end_time IS NULL)');
+            params.push(
+              new Date(fromDate).toISOString(), 
+              new Date(toDate + 'T23:59:59').toISOString()
+            );
+          }
+          
+          // Add user filter if specified
+          if (userId && userId !== 'all') {
+            conditions.push('t.user_id = ?');
+            params.push(userId);
+          }
+          
+          // Add client filter if specified
+          if (clientId && clientId !== 'all') {
+            conditions.push('t.client_id = ?');
+            params.push(clientId);
+          }
+          
+          // Add project filter if specified
+          if (projectId && projectId !== 'all') {
+            conditions.push('t.project_id = ?');
+            params.push(projectId);
+          }
+          
+          // Add WHERE clause if we have conditions
+          if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+          }
+          
+          // Group by time entry and order by date
+          query += ' GROUP BY t.id ORDER BY t.start_time DESC';
+          
+          // Execute the query
+          const timeEntries = await dbManager.runQuery(query, params);
+          return timeEntries;
+        } catch (error) {
+          console.error('Error getting time entries for admin:', error);
+          return [];
         }
-        
-        // Add user filter if specified
-        if (userId && userId !== 'all') {
-          conditions.push('t.user_id = ?');
-          params.push(userId);
-        }
-        
-        // Add WHERE clause if we have conditions
-        if (conditions.length > 0) {
-          query += ' WHERE ' + conditions.join(' AND ');
-        }
-        
-        // Group by time entry and order by date
-        query += ' GROUP BY t.id ORDER BY t.start_time DESC';
-        
-        // Execute the query
-        const timeEntries = await dbManager.runQuery(query, params);
-        return timeEntries;
-      } catch (error) {
-        console.error('Error getting time entries for admin:', error);
-        return [];
-      }
-    });
+      });
 
     // Get screenshots for a time entry
     ipcMain.handle('admin:getScreenshots', async (event, data) => {

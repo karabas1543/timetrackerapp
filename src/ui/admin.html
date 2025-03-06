@@ -41,7 +41,38 @@
             <label for="date-to">To:</label>
             <input type="date" id="date-to">
           </div>
+          <div class="date-presets">
+            <button type="button" class="date-preset-btn" id="today-btn">Today</button>
+            <button type="button" class="date-preset-btn" id="yesterday-btn">Yesterday</button>
+            <button type="button" class="date-preset-btn" id="this-week-btn">This Week</button>
+            <button type="button" class="date-preset-btn" id="last-week-btn">Last Week</button>
+            <button type="button" class="date-preset-btn" id="this-month-btn">This Month</button>
+            <button type="button" class="date-preset-btn" id="last-month-btn">Last Month</button>
+            <button type="button" class="date-preset-btn" id="last-7-days-btn">Last 7 Days</button>
+            <button type="button" class="date-preset-btn" id="last-30-days-btn">Last 30 Days</button>
+          </div>
           <button id="apply-dates-btn">Apply</button>
+        </div>
+      </div>
+
+      <div class="admin-section">
+        <h2>Filters</h2>
+        <div class="client-project-filter">
+          <div>
+            <label for="client-filter">Client:</label>
+            <select id="client-filter" class="filter-select">
+              <option value="all">All Clients</option>
+              <!-- Client options will be populated dynamically -->
+            </select>
+          </div>
+          <div>
+            <label for="project-filter">Project:</label>
+            <select id="project-filter" class="filter-select">
+              <option value="all">All Projects</option>
+              <!-- Project options will be populated dynamically -->
+            </select>
+          </div>
+          <button id="apply-filters-btn" class="action-btn">Apply Filters</button>
         </div>
       </div>
       
