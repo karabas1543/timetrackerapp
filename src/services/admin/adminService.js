@@ -10,10 +10,24 @@ const Screenshot = require('../../data/models/screenshot');
 const Client = require('../../data/models/client');
 const Project = require('../../data/models/project');
 const dbManager = require('../../data/db/dbManager');
+const driveStore = require('../../data/storage/driveStore');
+const { app } = require('electron');
 
 class AdminService {
   constructor() {
     this.initialized = false;
+    this.useDriveSource = true; // Flag to control whether to use Drive as data source
+    // Path for temporary files
+    this.tempPath = path.join(app.getPath('userData'), 'temp');
+    
+    // Create temp directory if it doesn't exist
+    if (!fs.existsSync(this.tempPath)) {
+      try {
+        fs.mkdirSync(this.tempPath, { recursive: true });
+      } catch (error) {
+        console.error('Failed to create temp directory:', error);
+      }
+    }
   }
 
   /**
@@ -50,77 +64,30 @@ class AdminService {
 
     // Get time entries for admin view (with filtering)
     ipcMain.handle('admin:getTimeEntries', async (event, data) => {
-        try {
-          const { userId, fromDate, toDate, clientId, projectId } = data;
-          
-          // Build the query based on filters
-          let query = `
-            SELECT t.*, 
-                   COUNT(s.id) as screenshot_count
-            FROM time_entries t
-            LEFT JOIN screenshots s ON t.id = s.time_entry_id AND s.is_deleted = 0
-          `;
-          
-          const params = [];
-          const conditions = [];
-          
-          // Add date range condition
-          if (fromDate && toDate) {
-            conditions.push('t.start_time >= ? AND (t.end_time <= ? OR t.end_time IS NULL)');
-            params.push(
-              new Date(fromDate).toISOString(), 
-              new Date(toDate + 'T23:59:59').toISOString()
-            );
-          }
-          
-          // Add user filter if specified
-          if (userId && userId !== 'all') {
-            conditions.push('t.user_id = ?');
-            params.push(userId);
-          }
-          
-          // Add client filter if specified
-          if (clientId && clientId !== 'all') {
-            conditions.push('t.client_id = ?');
-            params.push(clientId);
-          }
-          
-          // Add project filter if specified
-          if (projectId && projectId !== 'all') {
-            conditions.push('t.project_id = ?');
-            params.push(projectId);
-          }
-          
-          // Add WHERE clause if we have conditions
-          if (conditions.length > 0) {
-            query += ' WHERE ' + conditions.join(' AND ');
-          }
-          
-          // Group by time entry and order by date
-          query += ' GROUP BY t.id ORDER BY t.start_time DESC';
-          
-          // Execute the query
-          const timeEntries = await dbManager.runQuery(query, params);
-          return timeEntries;
-        } catch (error) {
-          console.error('Error getting time entries for admin:', error);
-          return [];
+      try {
+        // Check if we should use Drive as the data source
+        if (this.useDriveSource) {
+          return await this.getTimeEntriesFromDrive(data);
+        } else {
+          return await this.getTimeEntriesFromLocal(data);
         }
-      });
+      } catch (error) {
+        console.error('Error getting time entries for admin:', error);
+        return [];
+      }
+    });
 
     // Get screenshots for a time entry
     ipcMain.handle('admin:getScreenshots', async (event, data) => {
       try {
         const { timeEntryId } = data;
-        const screenshots = await Screenshot.getByTimeEntryId(timeEntryId);
         
-        return screenshots.map(screenshot => ({
-          id: screenshot.id,
-          time_entry_id: screenshot.time_entry_id,
-          filepath: screenshot.filepath,
-          timestamp: screenshot.timestamp,
-          is_deleted: screenshot.is_deleted
-        }));
+        // Check if we should use Drive as the data source
+        if (this.useDriveSource) {
+          return await this.getScreenshotsFromDrive(timeEntryId);
+        } else {
+          return await this.getScreenshotsFromLocal(timeEntryId);
+        }
       } catch (error) {
         console.error('Error getting screenshots for admin:', error);
         return [];
@@ -130,24 +97,14 @@ class AdminService {
     // Get screenshot image data
     ipcMain.handle('admin:getScreenshotData', async (event, data) => {
       try {
-        const { screenshotId } = data;
+        const { screenshotId, isFromDrive } = data;
         
-        // Get the screenshot record
-        const screenshot = await Screenshot.getById(screenshotId);
-        
-        if (!screenshot || !screenshot.filepath || !fs.existsSync(screenshot.filepath)) {
-          return { success: false, error: 'Screenshot file not found' };
+        // Check if screenshot is from Drive
+        if (isFromDrive || this.useDriveSource) {
+          return await this.getScreenshotDataFromDrive(screenshotId);
+        } else {
+          return await this.getScreenshotDataFromLocal(screenshotId);
         }
-        
-        // Read the file and convert to base64
-        const imageBuffer = fs.readFileSync(screenshot.filepath);
-        const base64Data = imageBuffer.toString('base64');
-        
-        return {
-          success: true,
-          data: base64Data,
-          timestamp: screenshot.timestamp
-        };
       } catch (error) {
         console.error('Error getting screenshot data:', error);
         return { success: false, error: error.message };
@@ -203,6 +160,329 @@ class AdminService {
         return [];
       }
     });
+    
+    // Toggle data source between Drive and local
+    ipcMain.handle('admin:toggleDataSource', async (event, data) => {
+      try {
+        // Toggle data source flag
+        this.useDriveSource = data?.useDrive ?? !this.useDriveSource;
+        console.log(`Data source toggled to: ${this.useDriveSource ? 'Google Drive' : 'Local'}`);
+        return { 
+          success: true, 
+          useDrive: this.useDriveSource 
+        };
+      } catch (error) {
+        console.error('Error toggling data source:', error);
+        return { success: false, error: error.message };
+      }
+    });
+    
+    // Get data source status
+    ipcMain.handle('admin:getDataSourceStatus', () => {
+      return { 
+        useDrive: this.useDriveSource,
+        initialized: driveStore.initialized
+      };
+    });
+    
+    // Clear screenshot cache
+    ipcMain.handle('admin:clearScreenshotCache', async () => {
+      try {
+        driveStore.clearScreenshotCache();
+        
+        // Also clear temporary files
+        this.clearTempDirectory();
+        
+        return { success: true };
+      } catch (error) {
+        console.error('Error clearing screenshot cache:', error);
+        return { success: false, error: error.message };
+      }
+    });
+    
+    // Refresh from Drive
+    ipcMain.handle('admin:refreshFromDrive', async () => {
+      try {
+        await driveStore.syncPendingData();
+        return { success: true };
+      } catch (error) {
+        console.error('Error refreshing from Drive:', error);
+        return { success: false, error: error.message };
+      }
+    });
+  }
+  
+  /**
+   * Get time entries from Google Drive
+   * @param {Object} data - Filter criteria
+   * @returns {Promise<Array>} - Array of time entries
+   */
+  async getTimeEntriesFromDrive(data) {
+    try {
+      const { userId, fromDate, toDate, clientId, projectId } = data;
+      
+      // Fetch time entries from Drive
+      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+        userId,
+        fromDate,
+        toDate,
+        clientId,
+        projectId
+      });
+      
+      // Get screenshot counts for each time entry
+      for (const entry of timeEntries) {
+        // Find screenshots for this time entry
+        const screenshots = await driveStore.findScreenshotsByTimeEntry(entry.id);
+        entry.screenshot_count = screenshots.length;
+      }
+      
+      return timeEntries;
+    } catch (error) {
+      console.error('Error getting time entries from Drive:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get time entries from local database
+   * @param {Object} data - Filter criteria
+   * @returns {Promise<Array>} - Array of time entries
+   */
+  async getTimeEntriesFromLocal(data) {
+    try {
+      const { userId, fromDate, toDate, clientId, projectId } = data;
+      
+      // Build the query based on filters
+      let query = `
+        SELECT t.*, 
+               COUNT(s.id) as screenshot_count
+        FROM time_entries t
+        LEFT JOIN screenshots s ON t.id = s.time_entry_id AND s.is_deleted = 0
+      `;
+      
+      const params = [];
+      const conditions = [];
+      
+      // Add date range condition
+      if (fromDate && toDate) {
+        conditions.push('t.start_time >= ? AND (t.end_time <= ? OR t.end_time IS NULL)');
+        params.push(
+          new Date(fromDate).toISOString(), 
+          new Date(toDate + 'T23:59:59').toISOString()
+        );
+      }
+      
+      // Add user filter if specified
+      if (userId && userId !== 'all') {
+        conditions.push('t.user_id = ?');
+        params.push(userId);
+      }
+      
+      // Add client filter if specified
+      if (clientId && clientId !== 'all') {
+        conditions.push('t.client_id = ?');
+        params.push(clientId);
+      }
+      
+      // Add project filter if specified
+      if (projectId && projectId !== 'all') {
+        conditions.push('t.project_id = ?');
+        params.push(projectId);
+      }
+      
+      // Add WHERE clause if we have conditions
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+      
+      // Group by time entry and order by date
+      query += ' GROUP BY t.id ORDER BY t.start_time DESC';
+      
+      // Execute the query
+      return await dbManager.runQuery(query, params);
+    } catch (error) {
+      console.error('Error getting time entries from local database:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get screenshots from Google Drive
+   * @param {number} timeEntryId - Time entry ID
+   * @returns {Promise<Array>} - Array of screenshots
+   */
+  async getScreenshotsFromDrive(timeEntryId) {
+    try {
+      // Find screenshot files in Drive
+      const screenshots = await driveStore.findScreenshotsByTimeEntry(timeEntryId);
+      
+      // Format screenshot data for the client
+      return screenshots.map(screenshot => ({
+        id: screenshot.id,
+        time_entry_id: timeEntryId,
+        filepath: null, // No local filepath for Drive screenshots
+        timestamp: screenshot.timestamp,
+        is_deleted: 0,
+        is_from_drive: true, // Flag to indicate source
+        name: screenshot.name
+      }));
+    } catch (error) {
+      console.error('Error getting screenshots from Drive:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Get screenshots from local database
+   * @param {number} timeEntryId - Time entry ID
+   * @returns {Promise<Array>} - Array of screenshots
+   */
+  async getScreenshotsFromLocal(timeEntryId) {
+    try {
+      const screenshots = await Screenshot.getByTimeEntryId(timeEntryId);
+      
+      return screenshots.map(screenshot => ({
+        id: screenshot.id,
+        time_entry_id: screenshot.time_entry_id,
+        filepath: screenshot.filepath,
+        timestamp: screenshot.timestamp,
+        is_deleted: screenshot.is_deleted,
+        is_from_drive: false // Flag to indicate source
+      }));
+    } catch (error) {
+      console.error('Error getting screenshots from local:', error);
+      throw error;
+    }
+  }
+  
+  /**
+ * Get screenshot data from Google Drive
+ * @param {string} screenshotId - Screenshot ID (Drive file ID)
+ * @returns {Promise<Object>} - Screenshot data
+ */
+  async getScreenshotDataFromDrive(screenshotId) {
+    try {
+      console.log(`Starting download of screenshot ${screenshotId} from Drive`);
+      
+      // Download screenshot from Drive
+      const startTime = Date.now();
+      const screenshotData = await driveStore.downloadScreenshot(screenshotId, true);
+      const elapsed = Date.now() - startTime;
+      console.log(`Download completed in ${elapsed}ms`);
+      
+      if (!screenshotData) {
+        console.error(`No data returned for screenshot ${screenshotId}`);
+        return { 
+          success: false, 
+          error: 'Failed to download screenshot from Drive',
+          errorType: 'no_data'
+        };
+      }
+      
+      if (screenshotData.error) {
+        console.error(`Error downloading screenshot ${screenshotId}: ${screenshotData.error}`);
+        return { 
+          success: false, 
+          error: screenshotData.error,
+          errorType: 'download_error'
+        };
+      }
+      
+      // If we have base64 data, return it
+      if (screenshotData.base64) {
+        console.log(`Returning base64 data of length: ${screenshotData.base64.length}`);
+        return {
+          success: true,
+          data: screenshotData.base64,
+          thumbnailPath: screenshotData.thumbnailPath
+        };
+      }
+      
+      // If no base64 data but we have a thumbnailPath, try to read the thumbnail
+      if (!screenshotData.base64 && screenshotData.thumbnailPath) {
+        try {
+          console.log(`Using thumbnail as fallback for ${screenshotId}`);
+          const thumbnailBuffer = fs.readFileSync(screenshotData.thumbnailPath);
+          return {
+            success: true,
+            data: thumbnailBuffer.toString('base64'),
+            thumbnailPath: screenshotData.thumbnailPath,
+            isFromThumbnail: true
+          };
+        } catch (thumbnailError) {
+          console.error(`Error reading thumbnail for ${screenshotId}:`, thumbnailError);
+        }
+      }
+      
+      // If we get here, we couldn't get the data
+      return { 
+        success: false, 
+        error: 'Could not retrieve screenshot data',
+        errorType: 'unknown'
+      };
+    } catch (error) {
+      console.error('Error getting screenshot data from Drive:', error);
+      return { 
+        success: false, 
+        error: error.message,
+        errorType: 'exception'
+      };
+    }
+  }
+  
+  /**
+   * Get screenshot data from local file
+   * @param {number} screenshotId - Screenshot ID
+   * @returns {Promise<Object>} - Screenshot data
+   */
+  async getScreenshotDataFromLocal(screenshotId) {
+    try {
+      // Get the screenshot record
+      const screenshot = await Screenshot.getById(screenshotId);
+      
+      if (!screenshot || !screenshot.filepath || !fs.existsSync(screenshot.filepath)) {
+        return { success: false, error: 'Screenshot file not found' };
+      }
+      
+      // Read the file and convert to base64
+      const imageBuffer = fs.readFileSync(screenshot.filepath);
+      const base64Data = imageBuffer.toString('base64');
+      
+      return {
+        success: true,
+        data: base64Data,
+        timestamp: screenshot.timestamp
+      };
+    } catch (error) {
+      console.error('Error getting screenshot data from local:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  /**
+   * Clear the temporary directory
+   */
+  clearTempDirectory() {
+    try {
+      // Read directory
+      const files = fs.readdirSync(this.tempPath);
+      
+      // Delete each file
+      let deletedCount = 0;
+      for (const file of files) {
+        try {
+          fs.unlinkSync(path.join(this.tempPath, file));
+          deletedCount++;
+        } catch (error) {
+          console.error(`Error deleting temp file ${file}:`, error);
+        }
+      }
+      
+      console.log(`Cleared ${deletedCount} files from temp directory`);
+    } catch (error) {
+      console.error('Error clearing temp directory:', error);
+    }
   }
 
   /**
@@ -214,6 +494,11 @@ class AdminService {
    */
   async generateUserReport(userId, fromDate, toDate) {
     try {
+      // Check if using Drive data source
+      if (this.useDriveSource) {
+        return await this.generateUserReportFromDrive(userId, fromDate, toDate);
+      }
+      
       // Build the base query
       let query = `
         SELECT 
@@ -269,6 +554,67 @@ class AdminService {
       throw error;
     }
   }
+  
+  /**
+   * Generate user report from Drive data
+   * @param {string|null} userId - User ID filter (null for all)
+   * @param {string} fromDate - Start date in YYYY-MM-DD format
+   * @param {string} toDate - End date in YYYY-MM-DD format
+   * @returns {Promise<Array>} - Report data
+   */
+  async generateUserReportFromDrive(userId, fromDate, toDate) {
+    try {
+      // Fetch all time entries from Drive
+      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+        userId: userId !== 'all' ? userId : null,
+        fromDate,
+        toDate
+      });
+      
+      // Get all users
+      const users = await User.getAll();
+      const userMap = new Map(users.map(user => [user.id, user]));
+      
+      // Group entries by user
+      const userEntries = new Map();
+      
+      for (const entry of timeEntries) {
+        const userId = entry.user_id;
+        
+        if (!userEntries.has(userId)) {
+          userEntries.set(userId, {
+            userId,
+            username: entry.user?.username || 'Unknown User',
+            entries: [],
+            totalSeconds: 0,
+            billableSeconds: 0
+          });
+        }
+        
+        const userData = userEntries.get(userId);
+        userData.entries.push(entry);
+        
+        if (entry.duration) {
+          userData.totalSeconds += entry.duration;
+          if (entry.is_billable) {
+            userData.billableSeconds += entry.duration;
+          }
+        }
+      }
+      
+      // Convert to array for report
+      return Array.from(userEntries.values()).map(userData => ({
+        userId: userData.userId,
+        username: userData.username,
+        entryCount: userData.entries.length,
+        totalHours: userData.totalSeconds / 3600,
+        billableHours: userData.billableSeconds / 3600
+      })).sort((a, b) => b.totalHours - a.totalHours);
+    } catch (error) {
+      console.error('Error generating user report from Drive:', error);
+      throw error;
+    }
+  }
 
   /**
    * Generate a report grouping time entries by client
@@ -279,6 +625,11 @@ class AdminService {
    */
   async generateClientReport(userId, fromDate, toDate) {
     try {
+      // Check if using Drive data source
+      if (this.useDriveSource) {
+        return await this.generateClientReportFromDrive(userId, fromDate, toDate);
+      }
+      
       // Build the base query
       let query = `
         SELECT 
@@ -334,6 +685,68 @@ class AdminService {
       throw error;
     }
   }
+  
+  /**
+   * Generate client report from Drive data
+   * @param {string|null} userId - User ID filter (null for all)
+   * @param {string} fromDate - Start date in YYYY-MM-DD format
+   * @param {string} toDate - End date in YYYY-MM-DD format
+   * @returns {Promise<Array>} - Report data
+   */
+  async generateClientReportFromDrive(userId, fromDate, toDate) {
+    try {
+      // Fetch all time entries from Drive
+      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+        userId: userId !== 'all' ? userId : null,
+        fromDate,
+        toDate
+      });
+      
+      // Get all clients
+      const clients = await Client.getAll();
+      const clientMap = new Map(clients.map(client => [client.id, client]));
+      
+      // Group entries by client
+      const clientEntries = new Map();
+      
+      for (const entry of timeEntries) {
+        const clientId = entry.client_id;
+        const clientName = entry.client?.name || clientMap.get(clientId)?.name || 'Unknown Client';
+        
+        if (!clientEntries.has(clientId)) {
+          clientEntries.set(clientId, {
+            clientId,
+            clientName,
+            entries: [],
+            totalSeconds: 0,
+            billableSeconds: 0
+          });
+        }
+        
+        const clientData = clientEntries.get(clientId);
+        clientData.entries.push(entry);
+        
+        if (entry.duration) {
+          clientData.totalSeconds += entry.duration;
+          if (entry.is_billable) {
+            clientData.billableSeconds += entry.duration;
+          }
+        }
+      }
+      
+      // Convert to array for report
+      return Array.from(clientEntries.values()).map(clientData => ({
+        clientId: clientData.clientId,
+        clientName: clientData.clientName,
+        entryCount: clientData.entries.length,
+        totalHours: clientData.totalSeconds / 3600,
+        billableHours: clientData.billableSeconds / 3600
+      })).sort((a, b) => b.totalHours - a.totalHours);
+    } catch (error) {
+      console.error('Error generating client report from Drive:', error);
+      throw error;
+    }
+  }
 
   /**
    * Generate a report grouping time entries by project
@@ -344,6 +757,11 @@ class AdminService {
    */
   async generateProjectReport(userId, fromDate, toDate) {
     try {
+      // Check if using Drive data source
+      if (this.useDriveSource) {
+        return await this.generateProjectReportFromDrive(userId, fromDate, toDate);
+      }
+      
       // Build the base query
       let query = `
         SELECT 
@@ -402,6 +820,85 @@ class AdminService {
       }));
     } catch (error) {
       console.error('Error generating project report:', error);
+      throw error;
+    }
+  }
+  
+  /**
+   * Generate project report from Drive data
+   * @param {string|null} userId - User ID filter (null for all)
+   * @param {string} fromDate - Start date in YYYY-MM-DD format
+   * @param {string} toDate - End date in YYYY-MM-DD format
+   * @returns {Promise<Array>} - Report data
+   */
+  async generateProjectReportFromDrive(userId, fromDate, toDate) {
+    try {
+      // Fetch all time entries from Drive
+      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+        userId: userId !== 'all' ? userId : null,
+        fromDate,
+        toDate
+      });
+      
+      // Get all projects and clients
+      const projects = await Project.getAll();
+      const clients = await Client.getAll();
+      
+      const projectMap = new Map(projects.map(project => [project.id, project]));
+      const clientMap = new Map(clients.map(client => [client.id, client]));
+      
+      // Group entries by project
+      const projectEntries = new Map();
+      
+      for (const entry of timeEntries) {
+        const projectId = entry.project_id;
+        const clientId = entry.client_id;
+        
+        // Get project and client names either from entry or maps
+        const projectName = entry.project?.name || 
+                           projectMap.get(projectId)?.name || 
+                           'Unknown Project';
+        const clientName = entry.client?.name || 
+                          clientMap.get(clientId)?.name || 
+                          'Unknown Client';
+        
+        const projectKey = `${projectId}-${clientId}`;
+        
+        if (!projectEntries.has(projectKey)) {
+          projectEntries.set(projectKey, {
+            projectId,
+            projectName,
+            clientId,
+            clientName,
+            entries: [],
+            totalSeconds: 0,
+            billableSeconds: 0
+          });
+        }
+        
+        const projectData = projectEntries.get(projectKey);
+        projectData.entries.push(entry);
+        
+        if (entry.duration) {
+          projectData.totalSeconds += entry.duration;
+          if (entry.is_billable) {
+            projectData.billableSeconds += entry.duration;
+          }
+        }
+      }
+      
+      // Convert to array for report
+      return Array.from(projectEntries.values()).map(projectData => ({
+        projectId: projectData.projectId,
+        projectName: projectData.projectName,
+        clientId: projectData.clientId,
+        clientName: projectData.clientName,
+        entryCount: projectData.entries.length,
+        totalHours: projectData.totalSeconds / 3600,
+        billableHours: projectData.billableSeconds / 3600
+      })).sort((a, b) => b.totalHours - a.totalHours);
+    } catch (error) {
+      console.error('Error generating project report from Drive:', error);
       throw error;
     }
   }

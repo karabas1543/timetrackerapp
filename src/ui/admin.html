@@ -13,11 +13,26 @@
       <h1>Time Tracker Admin</h1>
       <div class="admin-controls">
         <button id="refresh-data-btn">Refresh Data</button>
+        <button id="toggle-source-btn">Toggle Data Source</button>
+        <button id="refresh-drive-btn">Refresh from Drive</button>
+        <button id="clear-cache-btn">Clear Cache</button>
         <button id="back-to-app-btn">Back to Timer</button>
       </div>
     </header>
     
     <div class="admin-content">
+      <!-- Data source indicator -->
+      <div class="admin-section data-source-indicator">
+        <div class="data-source-status">
+          <p>Data Source: <span id="data-source-text">Loading...</span></p>
+          <p>Last Sync: <span id="last-sync-text">Unknown</span></p>
+          <div id="data-source-loading" class="loading-indicator hidden">
+            <span class="loader"></span>
+            <span>Loading from Drive...</span>
+          </div>
+        </div>
+      </div>
+      
       <!-- User selection section -->
       <div class="admin-section">
         <h2>Users</h2>
@@ -141,6 +156,7 @@
         <div><strong>Time:</strong> <span id="screenshot-time"></span></div>
         <div><strong>User:</strong> <span id="screenshot-user"></span></div>
         <div><strong>Project:</strong> <span id="screenshot-project"></span></div>
+        <div><strong>Source:</strong> <span id="screenshot-source"></span></div>
       </div>
       <div class="screenshot-image-container">
         <img id="screenshot-full-image" src="" alt="Screenshot">

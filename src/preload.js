@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld(
         'settings:get',
         'client:getAll',
         'project:getByClient',
-        'activity:update',  // Fixed missing comma
+        'activity:update',
         'admin:refreshData',
         'admin:exportReport'      
       ];
@@ -37,7 +37,7 @@ contextBridge.exposeInMainWorld(
         'client:data',
         'project:data',
         'settings:data',
-        'activity:statusChange',  // Fixed missing comma
+        'activity:statusChange',
         'admin:dataUpdated',
         'admin:error'
       ];
@@ -52,15 +52,20 @@ contextBridge.exposeInMainWorld(
         'client:getAllSync',
         'project:getByClientSync',
         'settings:getSync',
-        'activity:getStatus',  // New channel for getting activity status
-        'client:getAll',      // Add these for client/project data
-        'project:getByClient', // Fixed missing comma
+        'activity:getStatus',
+        'client:getAll',
+        'project:getByClient',
         'admin:getUsers',
         'admin:getTimeEntries',
         'admin:getScreenshots',
         'admin:getScreenshotData',
         'admin:deleteTimeEntry',
-        'admin:generateReport'
+        'admin:generateReport',
+        // New channels for Drive integration
+        'admin:toggleDataSource',
+        'admin:getDataSourceStatus',
+        'admin:clearScreenshotCache',
+        'admin:refreshFromDrive'
       ];
       if (validChannels.includes(channel)) {
         return await ipcRenderer.invoke(channel, data);

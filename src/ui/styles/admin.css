@@ -1,452 +1,265 @@
-/* Admin Dashboard Styles */
-/* Path: src/ui/styles/admin.css */
+/* Add to the end of src/ui/styles/admin.css */
 
-/* Admin Layout */
-.admin-header {
+/* Data Source Indicator */
+.data-source-indicator {
+    background-color: #f8f9fa;
+    padding: 10px 15px;
+    margin-bottom: 20px;
+    border-left: 4px solid #4a90e2;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  .data-source-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: center;
+  }
+  
+  .data-source-status p {
+    margin: 0;
+    font-size: 0.9rem;
+  }
+  
+  #data-source-text {
+    font-weight: bold;
+  }
+  
+  #data-source-text.drive {
+    color: #4285f4; /* Google blue */
+  }
+  
+  #data-source-text.local {
+    color: #34a853; /* Google green */
+  }
+  
+  .loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #555;
+    font-size: 0.85rem;
+  }
+  
+  .loading-indicator .loader {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-top-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  
+  .hidden {
+    display: none !important;
+  }
+  
+  /* Button styles for Drive operations */
+  #toggle-source-btn, #refresh-drive-btn, #clear-cache-btn {
+    background-color: #f8f9fa;
+    border: 1px solid #dadce0;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  
+  #toggle-source-btn:hover, #refresh-drive-btn:hover, #clear-cache-btn:hover {
+    background-color: #f1f3f4;
+    border-color: #c0c0c0;
+  }
+  
+  #toggle-source-btn.drive {
+    background-color: #e8f0fe;
+    border-color: #4285f4;
+    color: #4285f4;
+  }
+  
+  /* Thumbnail loading indicator */
+  .thumbnail-loading {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+    height: 150px;
+    background-color: #f5f5f5;
+  }
+  
+  .thumbnail-loading .loader {
+    width: 32px;
+    height: 32px;
+    border: 3px solid rgba(0, 0, 0, 0.1);
+    border-top-color: #4a90e2;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  
+  /* Source badge for screenshots */
+  .source-badge {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+  }
+  
+  .source-badge.drive {
+    background-color: rgba(66, 133, 244, 0.8);
+  }
+  
+  .source-badge.local {
+    background-color: rgba(52, 168, 83, 0.8);
+  }
+  
+  /* Position for screenshots */
+  .screenshot-item {
+    position: relative;
+  }
+
+  /* Add these styles to src/ui/styles/admin.css */
+
+/* Fix overall layout */
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  
+  .admin-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #ddd;
+    flex-wrap: wrap;
+    gap: 10px;
   }
   
   .admin-controls {
     display: flex;
     gap: 10px;
+    flex-wrap: wrap;
   }
   
   .admin-section {
     background-color: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    padding: 20px;
-    margin-bottom: 25px;
-  }
-  
-  .admin-section h2 {
-    margin-top: 0;
-    margin-bottom: 15px;
-    color: #333;
-    font-size: 1.3rem;
-  }
-  
-  /* User selection */
-  .user-select-container select {
-    width: 100%;
-    max-width: 300px;
-    padding: 8px;
     border-radius: 4px;
-    border: 1px solid #ddd;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 15px;
+    margin-bottom: 20px;
   }
   
-  /* Date range picker */
-  .date-range-container {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    flex-wrap: wrap;
-  }
-  
-  .date-input {
-    display: flex;
-    align-items: center;
-  }
-  
-  .date-input label {
-    margin-right: 8px;
-    font-weight: bold;
-  }
-  
-  .date-input input {
-    padding: 8px;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-  }
-  
-  /* Tables */
-  .admin-table-container {
-    overflow-x: auto;
-  }
-  
-  .admin-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-  }
-  
-  .admin-table th,
-  .admin-table td {
-    padding: 12px;
-    text-align: left;
-    border-bottom: 1px solid #eee;
-  }
-  
-  .admin-table th {
-    background-color: #f5f5f5;
-    font-weight: bold;
-    position: sticky;
-    top: 0;
-  }
-  
-  .admin-table tbody tr:hover {
-    background-color: #f9f9f9;
-    cursor: pointer;
-  }
-  
-  .placeholder-row td {
-    text-align: center;
-    padding: 20px;
-    color: #888;
-  }
-  
-  /* Screenshots grid */
-  .screenshots-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 15px;
-    margin-top: 15px;
-  }
-  
-  .screenshot-item {
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  
+  /* Fix screenshot thumbnails */
   .screenshot-thumbnail {
     width: 100%;
     height: 150px;
     object-fit: cover;
     cursor: pointer;
-    transition: opacity 0.2s;
   }
   
-  .screenshot-thumbnail:hover {
-    opacity: 0.8;
-  }
-  
-  .screenshot-info {
-    padding: 8px;
-    font-size: 0.85rem;
-    background-color: #f5f5f5;
-  }
-  
-  .screenshot-time {
-    font-weight: bold;
-  }
-  
-  .placeholder-message {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 30px;
-    color: #888;
-    background-color: #f9f9f9;
-    border-radius: 4px;
-  }
-  
-  /* Modal */
-  .modal {
-    display: none;
-    position: fixed;
-    z-index: 1000;
-    left: 0;
-    top: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.7);
-  }
-  
-  .modal-content {
-    background-color: white;
-    margin: 5% auto;
-    padding: 20px;
-    border-radius: 8px;
-    width: 80%;
-    max-width: 1000px;
-    max-height: 85vh;
-    overflow-y: auto;
-  }
-  
-  .close-modal {
-    color: #aaa;
-    float: right;
-    font-size: 28px;
-    font-weight: bold;
-    cursor: pointer;
-  }
-  
-  .close-modal:hover {
-    color: #333;
-  }
-  
-  .screenshot-details {
-    margin-bottom: 15px;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 10px;
-  }
-  
-  .screenshot-image-container {
-    text-align: center;
-  }
-  
+  /* Fix modal image */
   #screenshot-full-image {
     max-width: 100%;
-    max-height: 70vh;
-    border: 1px solid #ddd;
+    max-height: 65vh;
+    object-fit: contain;
   }
   
-  /* Reports */
-  .reports-container {
-    display: flex;
-    flex-direction: column;
-    gap: 15px;
-  }
-  
-  .report-buttons {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  
-  .report-results {
-    margin-top: 15px;
-    background-color: #f9f9f9;
-    border: 1px solid #eee;
-    border-radius: 4px;
-    padding: 15px;
-    min-height: 100px;
-  }
-  
-  /* Actions column */
-  .action-btn {
-    background-color: transparent;
+  /* Fix button styling */
+  button {
+    background-color: #4a90e2;
+    color: white;
     border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
     cursor: pointer;
-    padding: 4px 8px;
-    color: #4a90e2;
-    font-size: 0.9rem;
+    font-size: 14px;
   }
   
-  .action-btn:hover {
-    text-decoration: underline;
+  button:hover {
+    background-color: #3a7bc8;
   }
   
-  .action-btn.delete {
-    color: #e24a4a;
+  button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
   }
   
-  /* Responsive adjustments */
-  @media (max-width: 768px) {
-    .admin-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 10px;
-    }
-    
-    .date-range-container {
-      flex-direction: column;
-      align-items: flex-start;
-    }
-    
-    .date-input {
-      width: 100%;
-      margin-bottom: 10px;
-    }
-    
-    .screenshots-grid {
-      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    }
-  }
-
-  /* Admin Panel Width Improvements 
-   Path: src/ui/styles/admin.css - Add these styles at the end of the file */
-
-/* Make the container wider to accommodate more content */
-.container {
-    width: 95%;
-    max-width: 1400px;
-    margin: 0 auto;
+  /* Data source indicator */
+  .data-source-indicator {
+    display: flex;
+    align-items: center;
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+    border-left: 4px solid #4a90e2;
+    margin-bottom: 15px;
   }
   
-  /* Improve table layout to prevent content cutoff */
-  .admin-table {
-    table-layout: fixed;
-    width: 100%;
+  .data-source-status {
+    display: flex;
+    align-items: center;
+    gap: 20px;
   }
   
-  /* Set appropriate column widths */
-  .admin-table th:nth-child(1), 
-  .admin-table td:nth-child(1) { /* Date column */
-    width: 10%;
+  .data-source-status p {
+    margin: 0;
   }
   
-  .admin-table th:nth-child(2),
-  .admin-table td:nth-child(2) { /* User column */
-    width: 10%;
+  /* Loading indicator */
+  .loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   
-  .admin-table th:nth-child(3),
-  .admin-table td:nth-child(3) { /* Client column */
-    width: 12%;
+  .loader {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #3498db;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
   }
   
-  .admin-table th:nth-child(4),
-  .admin-table td:nth-child(4) { /* Project column */
-    width: 15%;
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
   }
   
-  .admin-table th:nth-child(5),
-  .admin-table td:nth-child(5),
-  .admin-table th:nth-child(6),
-  .admin-table td:nth-child(6) { /* Start/End Time columns */
-    width: 10%;
+  /* Fix date range selector layout */
+  .date-range-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
   }
   
-  .admin-table th:nth-child(7),
-  .admin-table td:nth-child(7) { /* Duration column */
-    width: 10%;
-  }
-  
-  .admin-table th:nth-child(8),
-  .admin-table td:nth-child(8) { /* Screenshots column */
-    width: 8%;
-    text-align: center;
-  }
-  
-  .admin-table th:nth-child(9),
-  .admin-table td:nth-child(9) { /* Actions column */
-    width: 10%;
-    text-align: center;
-  }
-  
-  /* Table cell overflow handling */
-  .admin-table td {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  
-  /* Add horizontal scrolling for tables on smaller screens */
-  .admin-table-container {
-    overflow-x: auto;
-    margin-bottom: 20px;
-  }
-  
-  /* Add quick date range buttons section */
   .date-presets {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 5px;
     margin-top: 10px;
   }
   
   .date-preset-btn {
-    padding: 6px 12px;
-    background-color: #f5f5f5;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.85rem;
-  }
-  
-  .date-preset-btn:hover {
-    background-color: #e9e9e9;
-  }
-  
-  /* Add filter section for client/project */
-  .client-project-filter {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    margin-top: 15px;
-  }
-  
-  .filter-select {
-    min-width: 200px;
-    padding: 8px;
-    border-radius: 4px;
-    border: 1px solid #ddd;
-  }
-  
-  /* Totals row styling */
-  .totals-row {
-    font-weight: bold;
-    background-color: #f9f9f9;
-  }
-  
-  .totals-row td {
-    border-top: 2px solid #ddd;
-  }
-  
-  /* Override width for admin window */
-  @media (min-width: 1200px) {
-    body {
-      min-width: 1200px;
-    }
-  }
-
-  /* Updated Button Styles - Add to admin.css */
-
-/* Improve date preset buttons for better readability */
-.date-preset-btn {
-    padding: 6px 12px;
     background-color: #f0f0f0;
-    border: 1px solid #ccc;
+    color: #333;
+    border: 1px solid #ddd;
     border-radius: 4px;
+    padding: 5px 10px;
     cursor: pointer;
     font-size: 0.85rem;
-    color: #333; /* Darker text color for better contrast */
-    transition: all 0.2s ease-in-out;
   }
   
   .date-preset-btn:hover {
     background-color: #e0e0e0;
-    border-color: #999;
-  }
-  
-  .date-preset-btn:active {
-    background-color: #d0d0d0;
-    transform: translateY(1px);
-  }
-  
-  /* Style for the apply buttons to be more prominent */
-  #apply-dates-btn, #apply-filters-btn {
-    background-color: #4a90e2;
-    color: white;
-    border: none;
-    padding: 8px 16px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-weight: bold;
-    transition: background-color 0.2s;
-  }
-  
-  #apply-dates-btn:hover, #apply-filters-btn:hover {
-    background-color: #3a80d2;
-  }
-  
-  /* Overall button color consistency */
-  .action-btn {
-    background-color: #f5f5f5;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 5px 10px;
-    color: #4a90e2;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .action-btn:hover {
-    background-color: #e8e8e8;
-    border-color: #ccc;
-  }
-  
-  .action-btn.delete {
-    color: #e24a4a;
-  }
-  
-  .action-btn.delete:hover {
-    background-color: #fff0f0;
   }

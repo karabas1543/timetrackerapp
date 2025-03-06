@@ -18,6 +18,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const reportResults = document.getElementById('report-results');
     const applyFiltersBtn = document.getElementById('apply-filters-btn');
     
+    // New Drive-related elements
+    const toggleSourceBtn = document.getElementById('toggle-source-btn');
+    const refreshDriveBtn = document.getElementById('refresh-drive-btn');
+    const clearCacheBtn = document.getElementById('clear-cache-btn');
+    const dataSourceText = document.getElementById('data-source-text');
+    const lastSyncText = document.getElementById('last-sync-text');
+    const dataSourceLoading = document.getElementById('data-source-loading');
+    
     // Modal elements
     const screenshotModal = document.getElementById('screenshot-modal');
     const closeModal = document.querySelector('.close-modal');
@@ -26,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const screenshotTime = document.getElementById('screenshot-time');
     const screenshotUser = document.getElementById('screenshot-user');
     const screenshotProject = document.getElementById('screenshot-project');
+    const screenshotSource = document.getElementById('screenshot-source');
     
     // Date preset buttons
     const todayBtn = document.getElementById('today-btn');
@@ -49,6 +58,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let users = [];
     let clients = [];
     let projects = [];
+    let isUsingDrive = true; // Default to Drive source
+    let isLoadingData = false;
     
     // ------ INITIALIZATION ------
     // Set default date range (last 7 days)
@@ -76,6 +87,21 @@ document.addEventListener('DOMContentLoaded', () => {
     
     backToAppBtn.addEventListener('click', () => {
       window.location.href = 'index.html';
+    });
+    
+    // Toggle data source button
+    toggleSourceBtn.addEventListener('click', () => {
+      toggleDataSource();
+    });
+    
+    // Refresh from Drive button
+    refreshDriveBtn.addEventListener('click', () => {
+      refreshFromDrive();
+    });
+    
+    // Clear cache button
+    clearCacheBtn.addEventListener('click', () => {
+      clearScreenshotCache();
     });
     
     // Apply filters button
@@ -124,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     async function initialize() {
       try {
+        // Check data source status first
+        await getDataSourceStatus();
+        
         // Load users
         await loadUsers();
         
@@ -137,6 +166,142 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadTimeEntries();
       } catch (error) {
         showError('Error initializing admin dashboard', error);
+      }
+    }
+    
+    /**
+     * Get data source status from the backend
+     */
+    async function getDataSourceStatus() {
+      try {
+        const status = await window.api.invoke('admin:getDataSourceStatus');
+        
+        // Update UI based on status
+        isUsingDrive = status.useDrive;
+        
+        // Update data source indicator
+        updateDataSourceIndicator();
+      } catch (error) {
+        console.error('Error getting data source status:', error);
+        showError('Error getting data source status', error);
+      }
+    }
+    
+    /**
+     * Update the data source indicator in the UI
+     */
+    function updateDataSourceIndicator() {
+      if (isUsingDrive) {
+        dataSourceText.textContent = 'Google Drive';
+        dataSourceText.className = 'drive';
+        toggleSourceBtn.textContent = 'Switch to Local';
+        toggleSourceBtn.className = 'drive';
+        refreshDriveBtn.disabled = false;
+      } else {
+        dataSourceText.textContent = 'Local Storage';
+        dataSourceText.className = 'local';
+        toggleSourceBtn.textContent = 'Switch to Drive';
+        toggleSourceBtn.className = '';
+        refreshDriveBtn.disabled = true;
+      }
+    }
+    
+    /**
+     * Toggle between Google Drive and local data source
+     */
+    async function toggleDataSource() {
+      try {
+        // Show loading indicator
+        setLoadingState(true);
+        
+        // Toggle data source via backend
+        const result = await window.api.invoke('admin:toggleDataSource');
+        
+        if (result.success) {
+          isUsingDrive = result.useDrive;
+          
+          // Update UI
+          updateDataSourceIndicator();
+          
+          // Reload data
+          await loadTimeEntries();
+          
+          // Clean up 
+          clearScreenshots();
+        } else {
+          showError('Failed to toggle data source', result.error);
+        }
+      } catch (error) {
+        showError('Error toggling data source', error);
+      } finally {
+        setLoadingState(false);
+      }
+    }
+    
+    /**
+     * Refresh data from Google Drive
+     */
+    async function refreshFromDrive() {
+      try {
+        // Only proceed if using Drive source
+        if (!isUsingDrive) {
+          showError('Cannot refresh from Drive when using local data source');
+          return;
+        }
+        
+        // Show loading indicator
+        setLoadingState(true);
+        
+        // Trigger sync
+        const result = await window.api.invoke('admin:refreshFromDrive');
+        
+        if (result.success) {
+          // Reload data
+          await loadTimeEntries();
+          
+          // Clean up 
+          clearScreenshots();
+        } else {
+          showError('Failed to refresh from Drive', result.error);
+        }
+      } catch (error) {
+        showError('Error refreshing from Drive', error);
+      } finally {
+        setLoadingState(false);
+      }
+    }
+    
+    /**
+     * Clear screenshot cache
+     */
+    async function clearScreenshotCache() {
+      try {
+        const result = await window.api.invoke('admin:clearScreenshotCache');
+        
+        if (result.success) {
+          // If viewing a time entry, reload screenshots
+          if (selectedTimeEntry) {
+            loadScreenshots(selectedTimeEntry.id);
+          }
+        } else {
+          showError('Failed to clear screenshot cache', result.error);
+        }
+      } catch (error) {
+        showError('Error clearing screenshot cache', error);
+      }
+    }
+    
+    /**
+     * Set loading state for UI
+     * @param {boolean} isLoading - Whether loading is in progress
+     */
+    function setLoadingState(isLoading) {
+      isLoadingData = isLoading;
+      
+      if (isLoading) {
+        dataSourceLoading.classList.remove('hidden');
+      } else {
+        dataSourceLoading.classList.add('hidden');
       }
     }
     
@@ -238,12 +403,16 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     async function loadTimeEntries() {
       try {
+        // Show loading state
+        setLoadingState(true);
+        
         // Get date range
         const fromDate = dateFromInput.value;
         const toDate = dateToInput.value;
         
         if (!fromDate || !toDate) {
           showError('Please select a valid date range');
+          setLoadingState(false);
           return;
         }
         
@@ -274,6 +443,8 @@ document.addEventListener('DOMContentLoaded', () => {
         clearScreenshots();
       } catch (error) {
         showError('Error loading time entries', error);
+      } finally {
+        setLoadingState(false);
       }
     }
     
@@ -305,6 +476,11 @@ document.addEventListener('DOMContentLoaded', () => {
           row.classList.add('edited-entry');
         }
         
+        // Add data source indicator
+        if (entry.is_from_drive) {
+          row.classList.add('drive-entry');
+        }
+        
         // Format dates and times
         const startDate = new Date(entry.start_time);
         const dateStr = formatDate(startDate);
@@ -318,8 +494,8 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Find user, client and project names
         const userName = getUserName(entry.user_id);
-        const clientName = getClientName(entry.client_id);
-        const projectName = getProjectName(entry.project_id);
+        const clientName = entry.client?.name || getClientName(entry.client_id);
+        const projectName = entry.project?.name || getProjectName(entry.project_id);
         
         row.innerHTML = `
           <td>${dateStr}</td>
@@ -338,7 +514,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Add click event to view screenshots
         row.querySelector('.view-btn').addEventListener('click', () => {
-          loadScreenshots(entry.id);
+          loadScreenshots(entry.id, entry.is_from_drive);
           selectedTimeEntry = entry;
           
           // Highlight the selected row
@@ -375,13 +551,16 @@ document.addEventListener('DOMContentLoaded', () => {
     /**
      * Load screenshots for a specific time entry
      */
-    async function loadScreenshots(timeEntryId) {
+    async function loadScreenshots(timeEntryId, isFromDrive) {
       try {
         // Show loading state
         screenshotsContainer.innerHTML = '<div class="placeholder-message">Loading screenshots...</div>';
         
         // Request screenshots from the backend
-        screenshots = await window.api.invoke('admin:getScreenshots', { timeEntryId });
+        screenshots = await window.api.invoke('admin:getScreenshots', { 
+          timeEntryId,
+          isFromDrive
+        });
         console.log(`Loaded ${screenshots.length} screenshots`);
         
         // Display screenshots
@@ -392,466 +571,545 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     /**
-     * Display screenshots in the grid
-     */
-    function displayScreenshots() {
-      screenshotsContainer.innerHTML = '';
-      
-      if (screenshots.length === 0) {
-        screenshotsContainer.innerHTML = '<div class="placeholder-message">No screenshots available for this time entry</div>';
-        return;
-      }
-      
-      // Sort screenshots by timestamp
-      screenshots.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-      
-      screenshots.forEach(screenshot => {
-        const screenshotTime = new Date(screenshot.timestamp);
-        const timeStr = formatTime(screenshotTime);
-        
-        const screenshotDiv = document.createElement('div');
-        screenshotDiv.className = 'screenshot-item';
-        screenshotDiv.dataset.id = screenshot.id;
-        
-        // Use placeholder for the actual src for now
-        // In real implementation, we would request the actual image data
-        screenshotDiv.innerHTML = `
-          <img class="screenshot-thumbnail" src="assets/screenshot-placeholder.svg" alt="Screenshot at ${timeStr}">
-          <div class="screenshot-info">
-            <div class="screenshot-time">${timeStr}</div>
-            <div class="screenshot-date">${formatDate(screenshotTime)}</div>
-          </div>
-        `;
-        
-        // Actually load the screenshot
-        const thumbnailImg = screenshotDiv.querySelector('.screenshot-thumbnail');
-        loadScreenshotImage(screenshot.id, thumbnailImg);
-        
-        // Add click event to open the modal
-        thumbnailImg.addEventListener('click', () => {
-          openScreenshotModal(screenshot);
-        });
-        
-        screenshotsContainer.appendChild(screenshotDiv);
-      });
+ * Display screenshots in the grid
+ */
+function displayScreenshots() {
+    screenshotsContainer.innerHTML = '';
+    
+    if (screenshots.length === 0) {
+      screenshotsContainer.innerHTML = '<div class="placeholder-message">No screenshots available for this time entry</div>';
+      return;
     }
     
-    /**
-     * Load the actual screenshot image
-     */
-    async function loadScreenshotImage(screenshotId, imgElement) {
-      try {
-        // Get the actual path to the screenshot
-        const screenshot = screenshots.find(s => s.id === screenshotId);
-        
-        if (screenshot && screenshot.filepath) {
-          // For the admin panel, we'll use a special IPC call to get the image data
-          const imageData = await window.api.invoke('admin:getScreenshotData', { screenshotId });
-          
-          if (imageData && imageData.success && imageData.data) {
-            // Convert base64 data to an image src
-            imgElement.src = `data:image/png;base64,${imageData.data}`;
-          } else {
-            imgElement.src = 'assets/screenshot-error.svg';
-            console.error('No image data returned for screenshot', screenshotId);
-          }
-        } else {
-          imgElement.src = 'assets/screenshot-error.svg';
-        }
-      } catch (error) {
-        imgElement.src = 'assets/screenshot-error.svg';
-        console.error('Error loading screenshot image:', error);
-      }
-    }
+    // Sort screenshots by timestamp
+    screenshots.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
     
-    /**
-     * Open the screenshot modal
-     */
-    function openScreenshotModal(screenshot) {
-      // Set modal content
+    screenshots.forEach(screenshot => {
       const screenshotTime = new Date(screenshot.timestamp);
+      const timeStr = formatTime(screenshotTime);
+      const dateStr = formatDate(screenshotTime);
       
-      screenshotDate.textContent = formatDate(screenshotTime);
-      screenshotTime.textContent = formatTime(screenshotTime);
+      const screenshotDiv = document.createElement('div');
+      screenshotDiv.className = 'screenshot-item';
+      screenshotDiv.dataset.id = screenshot.id;
       
-      // Get user and project info
-      if (selectedTimeEntry) {
-        screenshotUser.textContent = getUserName(selectedTimeEntry.user_id);
-        screenshotProject.textContent = getProjectName(selectedTimeEntry.project_id);
-      } else {
-        screenshotUser.textContent = 'Unknown';
-        screenshotProject.textContent = 'Unknown';
+      // Add source indicator class
+      if (screenshot.is_from_drive) {
+        screenshotDiv.classList.add('drive-screenshot');
       }
       
-      // Load the full-size image
-      screenshotFullImage.src = 'assets/screenshot-placeholder.svg';
+      // Create container for loading indicator and image
+      const imageContainer = document.createElement('div');
+      imageContainer.className = 'screenshot-image-container';
+      imageContainer.style.position = 'relative';
+      imageContainer.style.width = '100%';
+      imageContainer.style.height = '150px';
       
-      loadScreenshotImage(screenshot.id, screenshotFullImage);
+      // Create loading indicator
+      const loadingIndicator = document.createElement('div');
+      loadingIndicator.className = 'thumbnail-loading';
+      loadingIndicator.innerHTML = '<div class="loader"></div>';
       
-      // Show the modal
-      screenshotModal.style.display = 'block';
-    }
-    
-    /**
-     * Clear screenshots display
-     */
-    function clearScreenshots() {
-      screenshotsContainer.innerHTML = '<div class="placeholder-message">Select a time entry to view screenshots</div>';
-      screenshots = [];
-    }
-    
-    /**
-     * Delete a time entry
-     */
-    async function deleteTimeEntry(timeEntryId) {
-      try {
-        const result = await window.api.invoke('admin:deleteTimeEntry', { timeEntryId });
-        
-        if (result && result.success) {
-          // Remove from our local array
-          timeEntries = timeEntries.filter(entry => entry.id !== timeEntryId);
-          
-          // Update display
-          displayTimeEntries();
-          
-          // Clear screenshots if the selected entry was deleted
-          if (selectedTimeEntry && selectedTimeEntry.id === timeEntryId) {
-            clearScreenshots();
-            selectedTimeEntry = null;
-          }
-        } else {
-          showError('Failed to delete time entry');
+      // Create image element
+      const thumbnailImg = document.createElement('img');
+      thumbnailImg.className = 'screenshot-thumbnail';
+      thumbnailImg.src = 'assets/screenshot-placeholder.svg';
+      thumbnailImg.alt = `Screenshot at ${timeStr}`;
+      thumbnailImg.style.display = 'none';
+      
+      // Add elements to container
+      imageContainer.appendChild(loadingIndicator);
+      imageContainer.appendChild(thumbnailImg);
+      
+      // Create info and badge elements
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'screenshot-info';
+      infoDiv.innerHTML = `
+        <div class="screenshot-time">${timeStr}</div>
+        <div class="screenshot-date">${dateStr}</div>
+      `;
+      
+      const sourceBadge = document.createElement('div');
+      sourceBadge.className = `source-badge ${screenshot.is_from_drive ? 'drive' : 'local'}`;
+      sourceBadge.textContent = screenshot.is_from_drive ? 'Drive' : 'Local';
+      
+      // Append all elements to the screenshot div
+      screenshotDiv.appendChild(imageContainer);
+      screenshotDiv.appendChild(infoDiv);
+      screenshotDiv.appendChild(sourceBadge);
+      
+      // Add to container
+      screenshotsContainer.appendChild(screenshotDiv);
+      
+      // Load the actual screenshot
+      loadScreenshotImage(
+        screenshot.id, 
+        screenshot.is_from_drive, 
+        thumbnailImg, 
+        function() {
+          // Hide loading indicator and show image when loaded
+          loadingIndicator.style.display = 'none';
+          thumbnailImg.style.display = 'block';
         }
-      } catch (error) {
-        showError('Error deleting time entry', error);
+      );
+      
+      // Add click event to open the modal
+      thumbnailImg.addEventListener('click', () => {
+        openScreenshotModal(screenshot);
+      });
+    });
+  }
+      
+      /**
+ * Load the actual screenshot image
+ * @param {string|number} screenshotId - Screenshot ID
+ * @param {boolean} isFromDrive - Whether the screenshot is from Drive
+ * @param {HTMLImageElement} imgElement - Image element to set
+ * @param {Function} onLoadCallback - Callback function when image is loaded
+ */
+async function loadScreenshotImage(screenshotId, isFromDrive, imgElement, onLoadCallback) {
+    try {
+      // Request screenshot data with source information
+      const imageData = await window.api.invoke('admin:getScreenshotData', { 
+        screenshotId,
+        isFromDrive
+      });
+      
+      console.log(`Screenshot data received for ${screenshotId}, success: ${imageData.success}`);
+      
+      if (imageData && imageData.success && imageData.data) {
+        // Convert base64 data to an image src
+        imgElement.src = `data:image/png;base64,${imageData.data}`;
+        
+        // Set up load event to call the callback
+        imgElement.onload = function() {
+          console.log(`Image loaded for ${screenshotId}`);
+          onLoadCallback();
+        };
+        
+        // Add error handler
+        imgElement.onerror = function() {
+          console.error(`Error loading image for ${screenshotId}`);
+          imgElement.src = 'assets/screenshot-error.svg';
+          onLoadCallback();
+        };
+      } else {
+        console.error('No image data returned for screenshot', screenshotId, imageData);
+        imgElement.src = 'assets/screenshot-error.svg';
+        onLoadCallback();
       }
+    } catch (error) {
+      console.error('Error loading screenshot image:', error);
+      imgElement.src = 'assets/screenshot-error.svg';
+      onLoadCallback();
     }
-    
-    /**
-     * Generate a report based on the type
-     */
-    function generateReport(type) {
-      reportResults.innerHTML = '<div class="report-loading">Generating report...</div>';
+  }
       
-      // Get date range
-      const fromDate = dateFromInput.value;
-      const toDate = dateToInput.value;
-      
-      if (!fromDate || !toDate) {
-        showError('Please select a valid date range for the report');
-        return;
-      }
-      
-      const params = {
-        type: type,
-        userId: currentUser === 'all' ? null : currentUser,
-        fromDate: fromDate,
-        toDate: toDate
-      };
-      
-      window.api.invoke('admin:generateReport', params)
-        .then(reportData => {
-          displayReport(type, reportData);
-        })
-        .catch(error => {
-          showError('Error generating report', error);
+      /**
+       * Open the screenshot modal
+       */
+      function openScreenshotModal(screenshot) {
+        // Show loading image while the full screenshot is loading
+        screenshotFullImage.src = 'assets/screenshot-placeholder.svg';
+        
+        // Set modal content
+        const screenshotTime = new Date(screenshot.timestamp);
+        
+        screenshotDate.textContent = formatDate(screenshotTime);
+        screenshotTime.textContent = formatTime(screenshotTime);
+        
+        // Set source information
+        screenshotSource.textContent = screenshot.is_from_drive ? 'Google Drive' : 'Local Storage';
+        screenshotSource.className = screenshot.is_from_drive ? 'drive' : 'local';
+        
+        // Get user and project info
+        if (selectedTimeEntry) {
+          const userName = selectedTimeEntry.user?.username || getUserName(selectedTimeEntry.user_id);
+          const projectName = selectedTimeEntry.project?.name || getProjectName(selectedTimeEntry.project_id);
+          
+          screenshotUser.textContent = userName;
+          screenshotProject.textContent = projectName;
+        } else {
+          screenshotUser.textContent = 'Unknown';
+          screenshotProject.textContent = 'Unknown';
+        }
+        
+        // Load the full-size image
+        loadScreenshotImage(screenshot.id, screenshot.is_from_drive, screenshotFullImage, () => {
+          // Image loaded successfully, no need to do anything else
         });
-    }
-    
-    /**
-     * Display a report in the results section
-     */
-    function displayReport(type, data) {
-      if (!data || data.length === 0) {
-        reportResults.innerHTML = '<div class="report-empty">No data available for the selected criteria</div>';
-        return;
+        
+        // Show the modal
+        screenshotModal.style.display = 'block';
       }
       
-      let html = '';
-      
-      switch (type) {
-        case 'user':
-          html = generateUserReport(data);
-          break;
-        case 'client':
-          html = generateClientReport(data);
-          break;
-        case 'project':
-          html = generateProjectReport(data);
-          break;
+      /**
+       * Clear screenshots display
+       */
+      function clearScreenshots() {
+        screenshotsContainer.innerHTML = '<div class="placeholder-message">Select a time entry to view screenshots</div>';
+        screenshots = [];
       }
       
-      reportResults.innerHTML = html;
-    }
-    
-    /**
-     * Generate HTML for user report
-     */
-    function generateUserReport(data) {
-      let html = '<h3>User Time Report</h3>';
-      html += '<table class="report-table">';
-      html += '<thead><tr><th>User</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
-      html += '<tbody>';
-      
-      data.forEach(item => {
-        html += `<tr>
-          <td>${item.username}</td>
-          <td>${formatHours(item.totalHours)}</td>
-          <td>${formatHours(item.billableHours)}</td>
-          <td>${item.entryCount}</td>
-        </tr>`;
-      });
-      
-      html += '</tbody></table>';
-      return html;
-    }
-    
-    /**
-     * Generate HTML for client report
-     */
-    function generateClientReport(data) {
-      let html = '<h3>Client Time Report</h3>';
-      html += '<table class="report-table">';
-      html += '<thead><tr><th>Client</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
-      html += '<tbody>';
-      
-      data.forEach(item => {
-        html += `<tr>
-          <td>${item.clientName}</td>
-          <td>${formatHours(item.totalHours)}</td>
-          <td>${formatHours(item.billableHours)}</td>
-          <td>${item.entryCount}</td>
-        </tr>`;
-      });
-      
-      html += '</tbody></table>';
-      return html;
-    }
-    
-    /**
-     * Generate HTML for project report
-     */
-    function generateProjectReport(data) {
-      let html = '<h3>Project Time Report</h3>';
-      html += '<table class="report-table">';
-      html += '<thead><tr><th>Client</th><th>Project</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
-      html += '<tbody>';
-      
-      data.forEach(item => {
-        html += `<tr>
-          <td>${item.clientName}</td>
-          <td>${item.projectName}</td>
-          <td>${formatHours(item.totalHours)}</td>
-          <td>${formatHours(item.billableHours)}</td>
-          <td>${item.entryCount}</td>
-        </tr>`;
-      });
-      
-      html += '</tbody></table>';
-      return html;
-    }
-    
-    /**
-     * Export current time entries to CSV
-     */
-    function exportToCsv() {
-      if (!timeEntries || timeEntries.length === 0) {
-        showError('No data to export');
-        return;
+      /**
+       * Delete a time entry
+       */
+      async function deleteTimeEntry(timeEntryId) {
+        try {
+          const result = await window.api.invoke('admin:deleteTimeEntry', { timeEntryId });
+          
+          if (result && result.success) {
+            // Remove from our local array
+            timeEntries = timeEntries.filter(entry => entry.id !== timeEntryId);
+            
+            // Update display
+            displayTimeEntries();
+            
+            // Clear screenshots if the selected entry was deleted
+            if (selectedTimeEntry && selectedTimeEntry.id === timeEntryId) {
+              clearScreenshots();
+              selectedTimeEntry = null;
+            }
+          } else {
+            showError('Failed to delete time entry');
+          }
+        } catch (error) {
+          showError('Error deleting time entry', error);
+        }
       }
       
-      // Create CSV header row
-      let csv = 'Date,User,Client,Project,Start Time,End Time,Duration,Billable,Notes\n';
-      
-      // Add each time entry as a row
-      timeEntries.forEach(entry => {
-        const startDate = new Date(entry.start_time);
-        const dateStr = formatDate(startDate);
-        const startTimeStr = formatTime(startDate);
-        const endTimeStr = entry.end_time ? formatTime(new Date(entry.end_time)) : '';
-        const durationStr = formatDuration(entry.duration);
+      /**
+       * Generate a report based on the type
+       */
+      function generateReport(type) {
+        reportResults.innerHTML = '<div class="report-loading">Generating report...</div>';
         
-        const userName = getUserName(entry.user_id);
-        const clientName = getClientName(entry.client_id);
-        const projectName = getProjectName(entry.project_id);
+        // Get date range
+        const fromDate = dateFromInput.value;
+        const toDate = dateToInput.value;
         
-        // Escape notes to handle commas and quotes
-        const notes = entry.notes ? `"${entry.notes.replace(/"/g, '""')}"` : '';
+        if (!fromDate || !toDate) {
+          showError('Please select a valid date range for the report');
+          return;
+        }
         
-        csv += `${dateStr},${userName},${clientName},${projectName},${startTimeStr},${endTimeStr},${durationStr},${entry.is_billable ? 'Yes' : 'No'},${notes}\n`;
-      });
+        const params = {
+          type: type,
+          userId: currentUser === 'all' ? null : currentUser,
+          fromDate: fromDate,
+          toDate: toDate
+        };
+        
+        window.api.invoke('admin:generateReport', params)
+          .then(reportData => {
+            displayReport(type, reportData);
+          })
+          .catch(error => {
+            showError('Error generating report', error);
+          });
+      }
       
-      // Create a download link
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
+      /**
+       * Display a report in the results section
+       */
+      function displayReport(type, data) {
+        if (!data || data.length === 0) {
+          reportResults.innerHTML = '<div class="report-empty">No data available for the selected criteria</div>';
+          return;
+        }
+        
+        let html = '';
+        
+        switch (type) {
+          case 'user':
+            html = generateUserReport(data);
+            break;
+          case 'client':
+            html = generateClientReport(data);
+            break;
+          case 'project':
+            html = generateProjectReport(data);
+            break;
+        }
+        
+        reportResults.innerHTML = html;
+      }
       
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `time-entries-${formatDateForFilename(new Date())}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-    
-    /**
-     * Show an error message
-     */
-    function showError(message, error) {
-      console.error(message, error);
-      alert(`${message}: ${error ? error.message || error : 'Unknown error'}`);
-    }
-    
-    // ------ DATE PRESET FUNCTIONS ------
-    
-    function setToday() {
-      const today = new Date();
-      setDateRange(today, today);
-    }
-    
-    function setYesterday() {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      setDateRange(yesterday, yesterday);
-    }
-    
-    function setThisWeek() {
-      const today = new Date();
-      const firstDay = new Date(today);
-      const day = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+      /**
+       * Generate HTML for user report
+       */
+      function generateUserReport(data) {
+        let html = '<h3>User Time Report</h3>';
+        html += '<div class="report-source">Source: ' + (isUsingDrive ? 'Google Drive' : 'Local Storage') + '</div>';
+        html += '<table class="report-table">';
+        html += '<thead><tr><th>User</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
+        html += '<tbody>';
+        
+        data.forEach(item => {
+          html += `<tr>
+            <td>${item.username}</td>
+            <td>${formatHours(item.totalHours)}</td>
+            <td>${formatHours(item.billableHours)}</td>
+            <td>${item.entryCount}</td>
+          </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        return html;
+      }
       
-      // Adjust to get Monday as the first day of the week
-      const diff = day === 0 ? 6 : day - 1; // If Sunday, go back 6 days, otherwise go back to Monday
-      firstDay.setDate(today.getDate() - diff);
+      /**
+       * Generate HTML for client report
+       */
+      function generateClientReport(data) {
+        let html = '<h3>Client Time Report</h3>';
+        html += '<div class="report-source">Source: ' + (isUsingDrive ? 'Google Drive' : 'Local Storage') + '</div>';
+        html += '<table class="report-table">';
+        html += '<thead><tr><th>Client</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
+        html += '<tbody>';
+        
+        data.forEach(item => {
+          html += `<tr>
+            <td>${item.clientName}</td>
+            <td>${formatHours(item.totalHours)}</td>
+            <td>${formatHours(item.billableHours)}</td>
+            <td>${item.entryCount}</td>
+          </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        return html;
+      }
       
-      setDateRange(firstDay, today);
-    }
-    
-    function setLastWeek() {
-      const today = new Date();
-      const lastWeekEnd = new Date(today);
-      const day = today.getDay() || 7; // Get current day (0 = Sunday, convert 0 to 7)
+      /**
+       * Generate HTML for project report
+       */
+      function generateProjectReport(data) {
+        let html = '<h3>Project Time Report</h3>';
+        html += '<div class="report-source">Source: ' + (isUsingDrive ? 'Google Drive' : 'Local Storage') + '</div>';
+        html += '<table class="report-table">';
+        html += '<thead><tr><th>Client</th><th>Project</th><th>Total Hours</th><th>Billable Hours</th><th>Entry Count</th></tr></thead>';
+        html += '<tbody>';
+        
+        data.forEach(item => {
+          html += `<tr>
+            <td>${item.clientName}</td>
+            <td>${item.projectName}</td>
+            <td>${formatHours(item.totalHours)}</td>
+            <td>${formatHours(item.billableHours)}</td>
+            <td>${item.entryCount}</td>
+          </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        return html;
+      }
       
-      // Last Sunday
-      lastWeekEnd.setDate(today.getDate() - day);
+      /**
+       * Export current time entries to CSV
+       */
+      function exportToCsv() {
+        if (!timeEntries || timeEntries.length === 0) {
+          showError('No data to export');
+          return;
+        }
+        
+        // Create CSV header row
+        let csv = 'Date,User,Client,Project,Start Time,End Time,Duration,Billable,Notes,Source\n';
+        
+        // Add each time entry as a row
+        timeEntries.forEach(entry => {
+          const startDate = new Date(entry.start_time);
+          const dateStr = formatDate(startDate);
+          const startTimeStr = formatTime(startDate);
+          const endTimeStr = entry.end_time ? formatTime(new Date(entry.end_time)) : '';
+          const durationStr = formatDuration(entry.duration);
+          
+          // Find names
+          const userName = entry.user?.username || getUserName(entry.user_id);
+          const clientName = entry.client?.name || getClientName(entry.client_id);
+          const projectName = entry.project?.name || getProjectName(entry.project_id);
+          
+          // Escape notes to handle commas and quotes
+          const notes = entry.notes ? `"${entry.notes.replace(/"/g, '""')}"` : '';
+          
+          // Add source information
+          const source = entry.is_from_drive ? 'Google Drive' : 'Local';
+          
+          csv += `${dateStr},${userName},${clientName},${projectName},${startTimeStr},${endTimeStr},${durationStr},${entry.is_billable ? 'Yes' : 'No'},${notes},${source}\n`;
+        });
+        
+        // Create a download link
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `time-entries-${formatDateForFilename(new Date())}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
       
-      // Last Monday (for the previous week)
-      const lastWeekStart = new Date(lastWeekEnd);
-      lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+      /**
+       * Show an error message
+       */
+      function showError(message, error) {
+        console.error(message, error);
+        alert(`${message}: ${error ? error.message || error : 'Unknown error'}`);
+      }
       
-      setDateRange(lastWeekStart, lastWeekEnd);
-    }
-    
-    function setThisMonth() {
-      const today = new Date();
-      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      // ------ DATE PRESET FUNCTIONS ------
       
-      setDateRange(firstDayOfMonth, today);
-    }
-    
-    function setLastMonth() {
-      const today = new Date();
-      const firstDayOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastDayOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+      function setToday() {
+        const today = new Date();
+        setDateRange(today, today);
+      }
       
-      setDateRange(firstDayOfLastMonth, lastDayOfLastMonth);
-    }
-    
-    function setLast7Days() {
-      const today = new Date();
-      const last7Days = new Date(today);
-      last7Days.setDate(today.getDate() - 6); // 6 days ago + today = 7 days
+      function setYesterday() {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        setDateRange(yesterday, yesterday);
+      }
       
-      setDateRange(last7Days, today);
-    }
-    
-    function setLast30Days() {
-      const today = new Date();
-      const last30Days = new Date(today);
-      last30Days.setDate(today.getDate() - 29); // 29 days ago + today = 30 days
+      function setThisWeek() {
+        const today = new Date();
+        const firstDay = new Date(today);
+        const day = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+        
+        // Adjust to get Monday as the first day of the week
+        const diff = day === 0 ? 6 : day - 1; // If Sunday, go back 6 days, otherwise go back to Monday
+        firstDay.setDate(today.getDate() - diff);
+        
+        setDateRange(firstDay, today);
+      }
       
-      setDateRange(last30Days, today);
-    }
-    
-    // Helper to set date range and trigger update
-    function setDateRange(fromDate, toDate) {
-      dateFromInput.value = formatDateForInput(fromDate);
-      dateToInput.value = formatDateForInput(toDate);
-      loadTimeEntries(); // Automatically load data with new date range
-    }
-    
-    // ------ HELPER FUNCTIONS ------
-    
-    /**
-     * Format a date for input fields (YYYY-MM-DD)
-     */
-    function formatDateForInput(date) {
-      return date.toISOString().split('T')[0];
-    }
-    
-    /**
-     * Format a date for display (MM/DD/YYYY)
-     */
-    function formatDate(date) {
-      return date.toLocaleDateString();
-    }
-    
-    /**
-     * Format a time for display (HH:MM AM/PM)
-     */
-    function formatTime(date) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    
-    /**
-     * Format a duration in seconds to HH:MM:SS
-     */
-    function formatDuration(seconds) {
-      if (!seconds) return '00:00:00';
+      function setLastWeek() {
+        const today = new Date();
+        const lastWeekEnd = new Date(today);
+        const day = today.getDay() || 7; // Get current day (0 = Sunday, convert 0 to 7)
+        
+        // Last Sunday
+        lastWeekEnd.setDate(today.getDate() - day);
+        
+        // Last Monday (for the previous week)
+        const lastWeekStart = new Date(lastWeekEnd);
+        lastWeekStart.setDate(lastWeekEnd.getDate() - 6);
+        
+        setDateRange(lastWeekStart, lastWeekEnd);
+      }
       
-      const hours = Math.floor(seconds / 3600);
-      const minutes = Math.floor((seconds % 3600) / 60);
-      const secs = seconds % 60;
+      function setThisMonth() {
+        const today = new Date();
+        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        
+        setDateRange(firstDayOfMonth, today);
+      }
       
-      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-    }
-    
-    /**
-     * Format hours for display (with 2 decimal places)
-     */
-    function formatHours(hours) {
-      return hours.toFixed(2);
-    }
-    
-    /**
-     * Format a date for a filename (YYYY-MM-DD)
-     */
-    function formatDateForFilename(date) {
-      return date.toISOString().split('T')[0];
-    }
-    
-    /**
-     * Get user name from user ID
-     */
-    function getUserName(userId) {
-      const user = users.find(u => u.id === userId);
-      return user ? user.username : 'Unknown User';
-    }
-    
-    /**
-     * Get client name from client ID
-     */
-    function getClientName(clientId) {
-      const client = clients.find(c => c.id === clientId);
-      return client ? client.name : 'Unknown Client';
-    }
-    
-    /**
-     * Get project name from project ID
-     */
-    function getProjectName(projectId) {
-      // Project list might not be fully loaded yet
-      const project = projects.find(p => p.id === projectId);
-      return project ? project.name : 'Unknown Project';
-    }
-  });
+      function setLastMonth() {
+        const today = new Date();
+        const firstDayOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const lastDayOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        
+        setDateRange(firstDayOfLastMonth, lastDayOfLastMonth);
+      }
+      
+      function setLast7Days() {
+        const today = new Date();
+        const last7Days = new Date(today);
+        last7Days.setDate(today.getDate() - 6); // 6 days ago + today = 7 days
+        
+        setDateRange(last7Days, today);
+      }
+      
+      function setLast30Days() {
+        const today = new Date();
+        const last30Days = new Date(today);
+        last30Days.setDate(today.getDate() - 29); // 29 days ago + today = 30 days
+        
+        setDateRange(last30Days, today);
+      }
+      
+      // Helper to set date range and trigger update
+      function setDateRange(fromDate, toDate) {
+        dateFromInput.value = formatDateForInput(fromDate);
+        dateToInput.value = formatDateForInput(toDate);
+        loadTimeEntries(); // Automatically load data with new date range
+      }
+      
+      // ------ HELPER FUNCTIONS ------
+      
+      /**
+       * Format a date for input fields (YYYY-MM-DD)
+       */
+      function formatDateForInput(date) {
+        return date.toISOString().split('T')[0];
+      }
+      
+      /**
+       * Format a date for display (MM/DD/YYYY)
+       */
+      function formatDate(date) {
+        return date.toLocaleDateString();
+      }
+      
+      /**
+       * Format a time for display (HH:MM AM/PM)
+       */
+      function formatTime(date) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      }
+      
+      /**
+       * Format a duration in seconds to HH:MM:SS
+       */
+      function formatDuration(seconds) {
+        if (!seconds) return '00:00:00';
+        
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        const secs = seconds % 60;
+        
+        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+      
+      /**
+       * Format hours for display (with 2 decimal places)
+       */
+      function formatHours(hours) {
+        return hours.toFixed(2);
+      }
+      
+      /**
+       * Format a date for a filename (YYYY-MM-DD)
+       */
+      function formatDateForFilename(date) {
+        return date.toISOString().split('T')[0];
+      }
+      
+      /**
+       * Get user name from user ID
+       */
+      function getUserName(userId) {
+        const user = users.find(u => u.id === userId);
+        return user ? user.username : 'Unknown User';
+      }
+      
+      /**
+       * Get client name from client ID
+       */
+      function getClientName(clientId) {
+        const client = clients.find(c => c.id === clientId);
+        return client ? client.name : 'Unknown Client';
+      }
+      
+      /**
+       * Get project name from project ID
+       */
+      function getProjectName(projectId) {
+        // Project list might not be fully loaded yet
+        const project = projects.find(p => p.id === projectId);
+        return project ? project.name : 'Unknown Project';
+      }
+    });
