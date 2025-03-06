@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray } = require('electron');
+const { app, BrowserWindow, Menu, Tray, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -9,6 +9,7 @@ const captureService = require('./services/screenshot/captureService');
 const activityTracker = require('./services/activity/activityTracker');
 const dataService = require('./services/data/dataService');
 const driveStore = require('./data/storage/driveStore');
+const adminService = require('./services/admin/adminService');
 
 // Log startup info for debugging
 console.log('=============================================');
@@ -22,6 +23,7 @@ console.log('=============================================');
 // Keep a global reference of the window object to prevent it from being garbage collected
 let mainWindow;
 let tray;
+let adminWindow = null;
 
 function createWindow() {
   // Create the browser window
@@ -51,6 +53,108 @@ function createWindow() {
   idleDetector.registerWindow(mainWindow);
   captureService.registerWindow(mainWindow);
   activityTracker.registerWindow(mainWindow);
+  
+  // Create application menu
+  createMenu();
+}
+
+// Create admin dashboard window
+function createAdminWindow() {
+  // Check if window already exists
+  if (adminWindow) {
+    adminWindow.focus();
+    return;
+  }
+  
+  // Create the browser window
+  adminWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    title: 'Time Tracker - Admin Dashboard',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+
+  // Load the admin HTML file
+  adminWindow.loadFile(path.join(__dirname, 'ui', 'admin.html'));
+
+  // Handle window closing
+  adminWindow.on('closed', () => {
+    adminWindow = null;
+  });
+  
+  // Register window with services
+  idleDetector.registerWindow(adminWindow);
+}
+
+// Create application menu
+function createMenu() {
+  const template = [
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Admin Dashboard',
+          click() {
+            createAdminWindow();
+          }
+        },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' }
+      ]
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'toggledevtools' },
+        { type: 'separator' },
+        { role: 'resetzoom' },
+        { role: 'zoomin' },
+        { role: 'zoomout' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'About Time Tracker',
+          click() {
+            // Show about dialog
+            const options = {
+              type: 'info',
+              buttons: ['OK'],
+              defaultId: 0,
+              title: 'About Time Tracker',
+              message: 'Time Tracker',
+              detail: 'Version 1.0.0\nA time tracking application for internal agency use.'
+            };
+            
+            dialog.showMessageBox(null, options);
+          }
+        }
+      ]
+    }
+  ];
+  
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
 }
 
 // Initialize services
@@ -76,6 +180,10 @@ function initializeServices() {
   // Initialize data service
   dataService.initialize();
   console.log('Data service initialized');
+  
+  // Initialize admin service
+  adminService.initialize();
+  console.log('Admin service initialized');
   
   // Set up integration between services
   setupServiceIntegration();
@@ -276,6 +384,12 @@ app.whenReady().then(() => {
           } else {
             createWindow();
           }
+        } 
+      },
+      { 
+        label: 'Admin Dashboard', 
+        click: () => { 
+          createAdminWindow();
         } 
       },
       { 

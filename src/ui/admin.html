@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Time Tracker - Admin Dashboard</title>
+  <meta http-equiv="Content-Security-Policy" content="script-src 'self';">
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/admin.css">
+</head>
+<body>
+  <div class="container">
+    <header class="admin-header">
+      <h1>Time Tracker Admin</h1>
+      <div class="admin-controls">
+        <button id="refresh-data-btn">Refresh Data</button>
+        <button id="back-to-app-btn">Back to Timer</button>
+      </div>
+    </header>
+    
+    <div class="admin-content">
+      <!-- User selection section -->
+      <div class="admin-section">
+        <h2>Users</h2>
+        <div class="user-select-container">
+          <select id="user-select">
+            <option value="all">Select a user</option>
+            <!-- User options will be populated dynamically -->
+          </select>
+        </div>
+      </div>
+      
+      <!-- Date range selection -->
+      <div class="admin-section">
+        <h2>Date Range</h2>
+        <div class="date-range-container">
+          <div class="date-input">
+            <label for="date-from">From:</label>
+            <input type="date" id="date-from">
+          </div>
+          <div class="date-input">
+            <label for="date-to">To:</label>
+            <input type="date" id="date-to">
+          </div>
+          <button id="apply-dates-btn">Apply</button>
+        </div>
+      </div>
+      
+      <!-- Time entries section -->
+      <div class="admin-section">
+        <h2>Time Entries</h2>
+        <div class="admin-table-container">
+          <table id="time-entries-table" class="admin-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>User</th>
+                <th>Client</th>
+                <th>Project</th>
+                <th>Start Time</th>
+                <th>End Time</th>
+                <th>Duration</th>
+                <th>Screenshots</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Time entries will be populated dynamically -->
+              <tr class="placeholder-row">
+                <td colspan="9">Select a user and date range to view time entries</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      
+      <!-- Screenshots section -->
+      <div class="admin-section">
+        <h2>Screenshots</h2>
+        <div id="screenshots-container" class="screenshots-grid">
+          <!-- Screenshots will be populated dynamically -->
+          <div class="placeholder-message">Select a time entry to view screenshots</div>
+        </div>
+      </div>
+      
+      <!-- Reports section -->
+      <div class="admin-section">
+        <h2>Reports</h2>
+        <div class="reports-container">
+          <div class="report-buttons">
+            <button id="user-report-btn">User Report</button>
+            <button id="client-report-btn">Client Report</button>
+            <button id="project-report-btn">Project Report</button>
+            <button id="export-csv-btn">Export to CSV</button>
+          </div>
+          <div id="report-results" class="report-results">
+            <!-- Report results will be displayed here -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Screenshot modal -->
+  <div id="screenshot-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-modal">&times;</span>
+      <h3>Screenshot Details</h3>
+      <div class="screenshot-details">
+        <div><strong>Date:</strong> <span id="screenshot-date"></span></div>
+        <div><strong>Time:</strong> <span id="screenshot-time"></span></div>
+        <div><strong>User:</strong> <span id="screenshot-user"></span></div>
+        <div><strong>Project:</strong> <span id="screenshot-project"></span></div>
+      </div>
+      <div class="screenshot-image-container">
+        <img id="screenshot-full-image" src="" alt="Screenshot">
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="js/admin.js"></script>
+</body>
+</html>

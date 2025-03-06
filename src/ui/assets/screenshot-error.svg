@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 200" width="300" height="200">
+  <!-- Background -->
+  <rect width="300" height="200" fill="#f9f9f9" />
+  
+  <!-- Error icon -->
+  <g transform="translate(150, 85)">
+    <circle cx="0" cy="0" r="40" fill="#ffeeee" stroke="#e74c3c" stroke-width="2" />
+    <path d="M-20,-20 L20,20 M-20,20 L20,-20" stroke="#e74c3c" stroke-width="3" stroke-linecap="round" />
+  </g>
+  
+  <!-- Error text -->
+  <text x="150" y="150" font-family="Arial, sans-serif" font-size="14" text-anchor="middle" fill="#e74c3c">
+    Failed to load screenshot
+  </text>
+</svg>

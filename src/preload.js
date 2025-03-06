@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld(
         'client:getAll',
         'project:getByClient',
         'activity:update'  // New channel for activity updates
+        'admin:refreshData',
+        'admin:exportReport'      
       ];
       if (validChannels.includes(channel)) {
         ipcRenderer.send(channel, data);
@@ -36,6 +38,8 @@ contextBridge.exposeInMainWorld(
         'project:data',
         'settings:data',
         'activity:statusChange'  // New channel for activity status changes
+        'admin:dataUpdated',
+        'admin:error'
       ];
       if (validChannels.includes(channel)) {
         // Deliberately strip event as it includes `sender` 
@@ -51,6 +55,12 @@ contextBridge.exposeInMainWorld(
         'activity:getStatus',  // New channel for getting activity status
         'client:getAll',      // Add these for client/project data
         'project:getByClient'
+        'admin:getUsers',
+        'admin:getTimeEntries',
+        'admin:getScreenshots',
+        'admin:getScreenshotData',
+        'admin:deleteTimeEntry',
+        'admin:generateReport'
       ];
       if (validChannels.includes(channel)) {
         return await ipcRenderer.invoke(channel, data);
