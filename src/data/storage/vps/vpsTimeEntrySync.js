@@ -1,15 +1,15 @@
-// Google Drive Time Entry Sync for Time Tracker App
-// Path: src/data/storage/drive/driveTimeEntrySync.js
+// VPS Time Entry Sync for Time Tracker App
+// Path: src/data/storage/vps/vpsTimeEntrySync.js
 
 const dbManager = require('../../db/dbManager');
 
-class DriveTimeEntrySync {
+class VpsTimeEntrySync {
   /**
-   * Create a new DriveTimeEntrySync instance
-   * @param {DriveManager} driveManager - The Drive Manager instance
+   * Create a new VpsTimeEntrySync instance
+   * @param {VpsManager} vpsManager - The VPS Manager instance
    */
-  constructor(driveManager) {
-    this.driveManager = driveManager;
+  constructor(vpsManager) {
+    this.vpsManager = vpsManager;
   }
 
   /**
@@ -21,8 +21,8 @@ class DriveTimeEntrySync {
       const query = `
         SELECT t.* 
         FROM time_entries t
-        JOIN sync_status s ON s.entity_id = t.id AND s.entity_type = 'time_entry'
-        WHERE s.is_synced = 0
+        JOIN sync_status ss ON ss.entity_id = t.id AND ss.entity_type = 'time_entry'
+        WHERE ss.is_synced = 0
         ORDER BY t.start_time ASC
         LIMIT 50
       `;
@@ -35,7 +35,7 @@ class DriveTimeEntrySync {
   }
 
   /**
-   * Sync time entries to Google Drive
+   * Sync time entries to VPS server
    * @returns {Promise<Object>} - Sync results
    */
   async syncPendingTimeEntries() {
@@ -70,9 +70,9 @@ class DriveTimeEntrySync {
   }
 
   /**
-   * Sync a single time entry to Google Drive
+   * Sync a single time entry to VPS server
    * @param {Object} timeEntry - The time entry to sync
-   * @returns {Promise<string>} - The file ID in Google Drive
+   * @returns {Promise<Object>} - The synced time entry
    */
   async syncTimeEntry(timeEntry) {
     try {
@@ -82,22 +82,11 @@ class DriveTimeEntrySync {
         // Enrich time entry with related data
         const enrichedEntry = await this.enrichTimeEntry(timeEntry);
         
-        // Convert time entry to JSON
-        const timeEntryJson = JSON.stringify(enrichedEntry, null, 2);
+        // Send to VPS
+        const result = await this.vpsManager.post('/time-entries', enrichedEntry);
         
-        // Create file name based on entry ID and date
-        const fileName = `time_entry_${timeEntry.id}_${new Date(timeEntry.start_time).toISOString().split('T')[0]}.json`;
-        
-        // Upload to Google Drive
-        const fileId = await this.driveManager.uploadFile(
-          fileName,
-          'application/json',
-          Buffer.from(timeEntryJson),
-          this.driveManager.timeEntriesFolderId
-        );
-        
-        console.log(`Time entry ${timeEntry.id} synced successfully as file ${fileName} (ID: ${fileId})`);
-        return fileId;
+        console.log(`Time entry ${timeEntry.id} synced successfully`);
+        return result;
       });
     } catch (error) {
       console.error(`Error syncing time entry ${timeEntry.id}:`, error);
@@ -234,6 +223,50 @@ class DriveTimeEntrySync {
       console.error(`Error updating sync status for ${entityType} ${entityId}:`, error);
     }
   }
+
+  /**
+   * Get time entries from VPS server
+   * @param {Object} filters - Filters for time entries
+   * @returns {Promise<Array>} - Array of time entries
+   */
+  async getTimeEntriesFromVps(filters = {}) {
+    try {
+      // Build query parameters
+      const params = {};
+      if (filters.userId) params.userId = filters.userId;
+      if (filters.fromDate) params.fromDate = filters.fromDate;
+      if (filters.toDate) params.toDate = filters.toDate;
+      if (filters.clientId) params.clientId = filters.clientId;
+      if (filters.projectId) params.projectId = filters.projectId;
+      
+      // Fetch time entries from VPS
+      const timeEntries = await this.vpsManager.get('/time-entries', params);
+      
+      // Mark entries as coming from VPS
+      return timeEntries.map(entry => ({
+        ...entry,
+        is_from_vps: true
+      }));
+    } catch (error) {
+      console.error('Error getting time entries from VPS:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if a time entry exists on the VPS
+   * @param {number} timeEntryId - Time entry ID
+   * @returns {Promise<boolean>} - True if the time entry exists
+   */
+  async checkTimeEntryExistsOnVps(timeEntryId) {
+    try {
+      const result = await this.vpsManager.get(`/time-entries/${timeEntryId}/exists`);
+      return result && result.exists === true;
+    } catch (error) {
+      console.error(`Error checking if time entry ${timeEntryId} exists on VPS:`, error);
+      return false;
+    }
+  }
 }
 
-module.exports = DriveTimeEntrySync;
+module.exports = VpsTimeEntrySync;
