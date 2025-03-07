@@ -8,7 +8,7 @@ const idleDetector = require('./services/timer/idleDetector');
 const captureService = require('./services/screenshot/captureService');
 const activityTracker = require('./services/activity/activityTracker');
 const dataService = require('./services/data/dataService');
-const driveStore = require('./data/storage/driveStore');
+const vpsStore = require('./data/storage/vpsStore');
 const adminService = require('./services/admin/adminService');
 
 // Log startup info for debugging
@@ -189,41 +189,41 @@ function initializeServices() {
   setupServiceIntegration();
   console.log('Services integration set up');
   
-  // Initialize Google Drive sync 
-  console.log('Initializing Google Drive sync...');
+  // Initialize VPS sync 
+  console.log('Initializing VPS sync...');
   try {
-    // Manual initialization of driveStore
-    initializeDriveStore();
+    // Initialize vpsStore
+    initializeVpsStore();
   } catch (error) {
-    console.error('Error initializing Google Drive sync:', error);
+    console.error('Error initializing VPS sync:', error);
   }
   
   console.log('All services initialized successfully');
 }
 
-// Initialize Google Drive store separately to handle async/await properly
-function initializeDriveStore() {
-  // First check if driveStore is properly loaded
-  if (!driveStore) {
-    console.error('DriveStore module not found or not properly loaded');
+// Initialize VPS store separately to handle async/await properly
+function initializeVpsStore() {
+  // First check if vpsStore is properly loaded
+  if (!vpsStore) {
+    console.error('VpsStore module not found or not properly loaded');
     return;
   }
   
-  console.log('DriveStore methods available:', Object.keys(driveStore));
+  console.log('VpsStore methods available:', Object.keys(vpsStore));
   
   // Check if initialize method exists
-  if (typeof driveStore.initialize !== 'function') {
-    console.error('DriveStore initialize method not found. Using direct implementation.');
+  if (typeof vpsStore.initialize !== 'function') {
+    console.error('VpsStore initialize method not found. Using direct implementation.');
     
     // Implement direct initialization if the method is missing
-    if (driveStore.drive === null && !driveStore.initialized) {
-      console.log('Attempting manual initialization of Drive Store...');
+    if (!vpsStore.initialized) {
+      console.log('Attempting manual initialization of VPS Store...');
       
       // Set up auto-sync with a 15-minute interval
       setTimeout(() => {
-        if (typeof driveStore.syncPendingData === 'function') {
+        if (typeof vpsStore.syncPendingData === 'function') {
           console.log('Running initial sync...');
-          driveStore.syncPendingData()
+          vpsStore.syncPendingData()
             .then(result => {
               console.log('Initial sync completed:', result);
             })
@@ -234,7 +234,7 @@ function initializeDriveStore() {
           // Set up periodic sync
           setInterval(() => {
             console.log('Running scheduled sync...');
-            driveStore.syncPendingData()
+            vpsStore.syncPendingData()
               .then(result => {
                 console.log('Auto-sync completed:', result);
               })
@@ -249,24 +249,24 @@ function initializeDriveStore() {
     }
   } else {
     // Use the standard initialization
-    driveStore.initialize()
+    vpsStore.initialize()
       .then(success => {
         if (success) {
-          console.log('Google Drive sync initialized successfully');
+          console.log('VPS sync initialized successfully');
           
           // Start auto-sync with a 15-minute interval
-          if (typeof driveStore.startAutoSync === 'function') {
-            driveStore.startAutoSync(15);
+          if (typeof vpsStore.startAutoSync === 'function') {
+            vpsStore.startAutoSync(15);
             console.log('Auto-sync started with 15-minute interval');
           } else {
             console.warn('StartAutoSync method not available');
           }
         } else {
-          console.warn('Google Drive sync initialization failed. Sync functionality will be limited.');
+          console.warn('VPS sync initialization failed. Sync functionality will be limited.');
         }
       })
       .catch(error => {
-        console.error('Error during Drive Store initialization:', error);
+        console.error('Error during VPS Store initialization:', error);
       });
   }
 }
@@ -281,23 +281,23 @@ function setupServiceIntegration() {
   });
   
   // Listen for timer stop events to end screenshot capturing and activity tracking
-  // and trigger Google Drive sync
+  // and trigger VPS sync
   timerService.on('timer:stopped', (userId) => {
     console.log(`Timer stopped for user ${userId}, stopping screenshot capture and activity tracking`);
     captureService.stopCapturing(userId);
     activityTracker.stopTracking(userId);
     
-    // Trigger sync to Google Drive when a timer is stopped
-    if (driveStore && typeof driveStore.syncPendingData === 'function') {
-      driveStore.syncPendingData()
+    // Trigger sync to VPS when a timer is stopped
+    if (vpsStore && typeof vpsStore.syncPendingData === 'function') {
+      vpsStore.syncPendingData()
         .then(result => {
-          console.log('Google Drive sync completed:', result);
+          console.log('VPS sync completed:', result);
         })
         .catch(error => {
-          console.error('Error during Google Drive sync:', error);
+          console.error('Error during VPS sync:', error);
         });
     } else {
-      console.warn('Drive sync not available for timer stop event');
+      console.warn('VPS sync not available for timer stop event');
     }
   });
   
@@ -395,8 +395,8 @@ app.whenReady().then(() => {
       { 
         label: 'Sync Now', 
         click: () => { 
-          if (driveStore && typeof driveStore.syncPendingData === 'function') {
-            driveStore.syncPendingData()
+          if (vpsStore && typeof vpsStore.syncPendingData === 'function') {
+            vpsStore.syncPendingData()
               .then(result => {
                 console.log('Manual sync completed:', result);
                 // Could show notification here
@@ -406,7 +406,7 @@ app.whenReady().then(() => {
                 // Could show error notification here
               });
           } else {
-            console.warn('Drive sync not available for manual sync');
+            console.warn('VPS sync not available for manual sync');
           }
         } 
       },
@@ -415,8 +415,8 @@ app.whenReady().then(() => {
         label: 'Quit', 
         click: () => { 
           // Try to trigger a final sync before quitting
-          if (driveStore && typeof driveStore.syncPendingData === 'function') {
-            driveStore.syncPendingData()
+          if (vpsStore && typeof vpsStore.syncPendingData === 'function') {
+            vpsStore.syncPendingData()
               .finally(() => {
                 app.quit();
               });
@@ -462,17 +462,17 @@ app.on('will-quit', (event) => {
   idleDetector.stop();
   
   // Stop auto-sync if method exists
-  if (driveStore && typeof driveStore.stopAutoSync === 'function') {
-    driveStore.stopAutoSync();
+  if (vpsStore && typeof vpsStore.stopAutoSync === 'function') {
+    vpsStore.stopAutoSync();
   }
   
   // Perform final sync before quitting if method exists
-  if (driveStore && typeof driveStore.syncPendingData === 'function') {
+  if (vpsStore && typeof vpsStore.syncPendingData === 'function') {
     event.preventDefault(); // Prevent app from quitting immediately
     
     // Do a final sync
     console.log('Performing final sync before quitting...');
-    driveStore.syncPendingData()
+    vpsStore.syncPendingData()
       .then(() => {
         console.log('Final sync completed');
         app.exit(); // Now exit

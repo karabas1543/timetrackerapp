@@ -10,13 +10,13 @@ const Screenshot = require('../../data/models/screenshot');
 const Client = require('../../data/models/client');
 const Project = require('../../data/models/project');
 const dbManager = require('../../data/db/dbManager');
-const driveStore = require('../../data/storage/driveStore');
+const vpsStore = require('../../data/storage/vpsStore');
 const { app } = require('electron');
 
 class AdminService {
   constructor() {
     this.initialized = false;
-    this.useDriveSource = true; // Flag to control whether to use Drive as data source
+    this.useVpsSource = true; // Flag to control whether to use VPS as data source
     // Path for temporary files
     this.tempPath = path.join(app.getPath('userData'), 'temp');
     
@@ -65,9 +65,9 @@ class AdminService {
     // Get time entries for admin view (with filtering)
     ipcMain.handle('admin:getTimeEntries', async (event, data) => {
       try {
-        // Check if we should use Drive as the data source
-        if (this.useDriveSource) {
-          return await this.getTimeEntriesFromDrive(data);
+        // Check if we should use VPS as the data source
+        if (this.useVpsSource) {
+          return await this.getTimeEntriesFromVps(data);
         } else {
           return await this.getTimeEntriesFromLocal(data);
         }
@@ -82,9 +82,9 @@ class AdminService {
       try {
         const { timeEntryId } = data;
         
-        // Check if we should use Drive as the data source
-        if (this.useDriveSource) {
-          return await this.getScreenshotsFromDrive(timeEntryId);
+        // Check if we should use VPS as the data source
+        if (this.useVpsSource) {
+          return await this.getScreenshotsFromVps(timeEntryId);
         } else {
           return await this.getScreenshotsFromLocal(timeEntryId);
         }
@@ -97,11 +97,11 @@ class AdminService {
     // Get screenshot image data
     ipcMain.handle('admin:getScreenshotData', async (event, data) => {
       try {
-        const { screenshotId, isFromDrive } = data;
+        const { screenshotId, isFromVps } = data;
         
-        // Check if screenshot is from Drive
-        if (isFromDrive || this.useDriveSource) {
-          return await this.getScreenshotDataFromDrive(screenshotId);
+        // Check if screenshot is from VPS
+        if (isFromVps || this.useVpsSource) {
+          return await this.getScreenshotDataFromVps(screenshotId);
         } else {
           return await this.getScreenshotDataFromLocal(screenshotId);
         }
@@ -161,15 +161,15 @@ class AdminService {
       }
     });
     
-    // Toggle data source between Drive and local
+    // Toggle data source between VPS and local
     ipcMain.handle('admin:toggleDataSource', async (event, data) => {
       try {
         // Toggle data source flag
-        this.useDriveSource = data?.useDrive ?? !this.useDriveSource;
-        console.log(`Data source toggled to: ${this.useDriveSource ? 'Google Drive' : 'Local'}`);
+        this.useVpsSource = data?.useVps ?? !this.useVpsSource;
+        console.log(`Data source toggled to: ${this.useVpsSource ? 'VPS Server' : 'Local'}`);
         return { 
           success: true, 
-          useDrive: this.useDriveSource 
+          useVps: this.useVpsSource 
         };
       } catch (error) {
         console.error('Error toggling data source:', error);
@@ -180,15 +180,15 @@ class AdminService {
     // Get data source status
     ipcMain.handle('admin:getDataSourceStatus', () => {
       return { 
-        useDrive: this.useDriveSource,
-        initialized: driveStore.initialized
+        useVps: this.useVpsSource,
+        initialized: vpsStore.initialized
       };
     });
     
     // Clear screenshot cache
     ipcMain.handle('admin:clearScreenshotCache', async () => {
       try {
-        driveStore.clearScreenshotCache();
+        vpsStore.clearScreenshotCache();
         
         // Also clear temporary files
         this.clearTempDirectory();
@@ -200,29 +200,29 @@ class AdminService {
       }
     });
     
-    // Refresh from Drive
-    ipcMain.handle('admin:refreshFromDrive', async () => {
+    // Refresh from VPS
+    ipcMain.handle('admin:refreshFromVps', async () => {
       try {
-        await driveStore.syncPendingData();
+        await vpsStore.syncPendingData();
         return { success: true };
       } catch (error) {
-        console.error('Error refreshing from Drive:', error);
+        console.error('Error refreshing from VPS:', error);
         return { success: false, error: error.message };
       }
     });
   }
   
   /**
-   * Get time entries from Google Drive
+   * Get time entries from VPS server
    * @param {Object} data - Filter criteria
    * @returns {Promise<Array>} - Array of time entries
    */
-  async getTimeEntriesFromDrive(data) {
+  async getTimeEntriesFromVps(data) {
     try {
       const { userId, fromDate, toDate, clientId, projectId } = data;
       
-      // Fetch time entries from Drive
-      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+      // Fetch time entries from VPS
+      const timeEntries = await vpsStore.fetchTimeEntriesFromVps({
         userId,
         fromDate,
         toDate,
@@ -233,13 +233,13 @@ class AdminService {
       // Get screenshot counts for each time entry
       for (const entry of timeEntries) {
         // Find screenshots for this time entry
-        const screenshots = await driveStore.findScreenshotsByTimeEntry(entry.id);
+        const screenshots = await vpsStore.findScreenshotsByTimeEntry(entry.id);
         entry.screenshot_count = screenshots.length;
       }
       
       return timeEntries;
     } catch (error) {
-      console.error('Error getting time entries from Drive:', error);
+      console.error('Error getting time entries from VPS:', error);
       throw error;
     }
   }
@@ -308,27 +308,27 @@ class AdminService {
   }
   
   /**
-   * Get screenshots from Google Drive
+   * Get screenshots from VPS server
    * @param {number} timeEntryId - Time entry ID
    * @returns {Promise<Array>} - Array of screenshots
    */
-  async getScreenshotsFromDrive(timeEntryId) {
+  async getScreenshotsFromVps(timeEntryId) {
     try {
-      // Find screenshot files in Drive
-      const screenshots = await driveStore.findScreenshotsByTimeEntry(timeEntryId);
+      // Find screenshot files on VPS
+      const screenshots = await vpsStore.findScreenshotsByTimeEntry(timeEntryId);
       
       // Format screenshot data for the client
       return screenshots.map(screenshot => ({
         id: screenshot.id,
         time_entry_id: timeEntryId,
-        filepath: null, // No local filepath for Drive screenshots
+        filepath: null, // No local filepath for VPS screenshots
         timestamp: screenshot.timestamp,
         is_deleted: 0,
-        is_from_drive: true, // Flag to indicate source
+        is_from_vps: true, // Flag to indicate source
         name: screenshot.name
       }));
     } catch (error) {
-      console.error('Error getting screenshots from Drive:', error);
+      console.error('Error getting screenshots from VPS:', error);
       throw error;
     }
   }
@@ -348,7 +348,7 @@ class AdminService {
         filepath: screenshot.filepath,
         timestamp: screenshot.timestamp,
         is_deleted: screenshot.is_deleted,
-        is_from_drive: false // Flag to indicate source
+        is_from_vps: false // Flag to indicate source
       }));
     } catch (error) {
       console.error('Error getting screenshots from local:', error);
@@ -357,17 +357,17 @@ class AdminService {
   }
   
   /**
- * Get screenshot data from Google Drive
- * @param {string} screenshotId - Screenshot ID (Drive file ID)
- * @returns {Promise<Object>} - Screenshot data
- */
-  async getScreenshotDataFromDrive(screenshotId) {
+   * Get screenshot data from VPS server
+   * @param {string} screenshotId - Screenshot ID (VPS file ID)
+   * @returns {Promise<Object>} - Screenshot data
+   */
+  async getScreenshotDataFromVps(screenshotId) {
     try {
-      console.log(`Starting download of screenshot ${screenshotId} from Drive`);
+      console.log(`Starting download of screenshot ${screenshotId} from VPS`);
       
-      // Download screenshot from Drive
+      // Download screenshot from VPS
       const startTime = Date.now();
-      const screenshotData = await driveStore.downloadScreenshot(screenshotId, true);
+      const screenshotData = await vpsStore.downloadScreenshot(screenshotId, true);
       const elapsed = Date.now() - startTime;
       console.log(`Download completed in ${elapsed}ms`);
       
@@ -375,7 +375,7 @@ class AdminService {
         console.error(`No data returned for screenshot ${screenshotId}`);
         return { 
           success: false, 
-          error: 'Failed to download screenshot from Drive',
+          error: 'Failed to download screenshot from VPS',
           errorType: 'no_data'
         };
       }
@@ -422,7 +422,7 @@ class AdminService {
         errorType: 'unknown'
       };
     } catch (error) {
-      console.error('Error getting screenshot data from Drive:', error);
+      console.error('Error getting screenshot data from VPS:', error);
       return { 
         success: false, 
         error: error.message,
@@ -494,9 +494,9 @@ class AdminService {
    */
   async generateUserReport(userId, fromDate, toDate) {
     try {
-      // Check if using Drive data source
-      if (this.useDriveSource) {
-        return await this.generateUserReportFromDrive(userId, fromDate, toDate);
+      // Check if using VPS data source
+      if (this.useVpsSource) {
+        return await this.generateUserReportFromVps(userId, fromDate, toDate);
       }
       
       // Build the base query
@@ -556,16 +556,16 @@ class AdminService {
   }
   
   /**
-   * Generate user report from Drive data
+   * Generate user report from VPS data
    * @param {string|null} userId - User ID filter (null for all)
    * @param {string} fromDate - Start date in YYYY-MM-DD format
    * @param {string} toDate - End date in YYYY-MM-DD format
    * @returns {Promise<Array>} - Report data
    */
-  async generateUserReportFromDrive(userId, fromDate, toDate) {
+  async generateUserReportFromVps(userId, fromDate, toDate) {
     try {
-      // Fetch all time entries from Drive
-      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+      // Fetch all time entries from VPS
+      const timeEntries = await vpsStore.fetchTimeEntriesFromVps({
         userId: userId !== 'all' ? userId : null,
         fromDate,
         toDate
@@ -611,7 +611,7 @@ class AdminService {
         billableHours: userData.billableSeconds / 3600
       })).sort((a, b) => b.totalHours - a.totalHours);
     } catch (error) {
-      console.error('Error generating user report from Drive:', error);
+      console.error('Error generating user report from VPS:', error);
       throw error;
     }
   }
@@ -625,9 +625,9 @@ class AdminService {
    */
   async generateClientReport(userId, fromDate, toDate) {
     try {
-      // Check if using Drive data source
-      if (this.useDriveSource) {
-        return await this.generateClientReportFromDrive(userId, fromDate, toDate);
+      // Check if using VPS data source
+      if (this.useVpsSource) {
+        return await this.generateClientReportFromVps(userId, fromDate, toDate);
       }
       
       // Build the base query
@@ -687,16 +687,16 @@ class AdminService {
   }
   
   /**
-   * Generate client report from Drive data
+   * Generate client report from VPS data
    * @param {string|null} userId - User ID filter (null for all)
    * @param {string} fromDate - Start date in YYYY-MM-DD format
    * @param {string} toDate - End date in YYYY-MM-DD format
    * @returns {Promise<Array>} - Report data
    */
-  async generateClientReportFromDrive(userId, fromDate, toDate) {
+  async generateClientReportFromVps(userId, fromDate, toDate) {
     try {
-      // Fetch all time entries from Drive
-      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+      // Fetch all time entries from VPS
+      const timeEntries = await vpsStore.fetchTimeEntriesFromVps({
         userId: userId !== 'all' ? userId : null,
         fromDate,
         toDate
@@ -743,7 +743,7 @@ class AdminService {
         billableHours: clientData.billableSeconds / 3600
       })).sort((a, b) => b.totalHours - a.totalHours);
     } catch (error) {
-      console.error('Error generating client report from Drive:', error);
+      console.error('Error generating client report from VPS:', error);
       throw error;
     }
   }
@@ -757,9 +757,9 @@ class AdminService {
    */
   async generateProjectReport(userId, fromDate, toDate) {
     try {
-      // Check if using Drive data source
-      if (this.useDriveSource) {
-        return await this.generateProjectReportFromDrive(userId, fromDate, toDate);
+      // Check if using VPS data source
+      if (this.useVpsSource) {
+        return await this.generateProjectReportFromVps(userId, fromDate, toDate);
       }
       
       // Build the base query
@@ -825,16 +825,16 @@ class AdminService {
   }
   
   /**
-   * Generate project report from Drive data
+   * Generate project report from VPS data
    * @param {string|null} userId - User ID filter (null for all)
    * @param {string} fromDate - Start date in YYYY-MM-DD format
    * @param {string} toDate - End date in YYYY-MM-DD format
    * @returns {Promise<Array>} - Report data
    */
-  async generateProjectReportFromDrive(userId, fromDate, toDate) {
+  async generateProjectReportFromVps(userId, fromDate, toDate) {
     try {
-      // Fetch all time entries from Drive
-      const timeEntries = await driveStore.fetchTimeEntriesFromDrive({
+      // Fetch all time entries from VPS
+      const timeEntries = await vpsStore.fetchTimeEntriesFromVps({
         userId: userId !== 'all' ? userId : null,
         fromDate,
         toDate
@@ -898,7 +898,7 @@ class AdminService {
         billableHours: projectData.billableSeconds / 3600
       })).sort((a, b) => b.totalHours - a.totalHours);
     } catch (error) {
-      console.error('Error generating project report from Drive:', error);
+      console.error('Error generating project report from VPS:', error);
       throw error;
     }
   }

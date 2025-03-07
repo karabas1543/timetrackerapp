@@ -7,12 +7,12 @@ const path = require('path');
 const { app } = require('electron');
 
 class VpsManager {
-  constructor(config = {}) {
-    // Default configuration
-    this.baseUrl = config.baseUrl || 'https://your-droplet-ip-or-domain/api';
-    this.apiKey = config.apiKey || '';
-    this.timeout = config.timeout || 30000; // 30 seconds
-    this.retryAttempts = config.retryAttempts || 3;
+    constructor(config = {}) {
+      // Default configuration
+      this.baseUrl = config.baseUrl || 'http://162.243.56.27:3000/api';
+      this.apiKey = config.apiKey || '41e5f38cd7486265f96c0defc49ba9af5a11962a61bc9bb71a993e51156b7c5e';
+      this.timeout = config.timeout || 30000; // 30 seconds
+      this.retryAttempts = config.retryAttempts || 3;
     
     // Add path for caching auth tokens
     this.userDataPath = app.getPath('userData');
