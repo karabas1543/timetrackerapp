@@ -160,13 +160,28 @@ class DatabaseManager {
       this.initialize();
     }
     
+    // Check if we're already in a transaction
+    const wasInTransaction = this.inTransaction;
+    
     try {
-      await this.beginTransaction();
+      // Only begin a new transaction if we're not already in one
+      if (!wasInTransaction) {
+        await this.beginTransaction();
+      }
+      
       const result = await callback();
-      await this.commitTransaction();
+      
+      // Only commit if we started the transaction
+      if (!wasInTransaction) {
+        await this.commitTransaction();
+      }
+      
       return result;
     } catch (error) {
-      await this.rollbackTransaction();
+      // Only rollback if we started the transaction
+      if (!wasInTransaction) {
+        await this.rollbackTransaction();
+      }
       throw error;
     }
   }

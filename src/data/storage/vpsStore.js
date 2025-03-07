@@ -11,8 +11,8 @@ class VpsStore {
   constructor() {
     // Default configuration
     const config = {
-      baseUrl: process.env.VPS_API_URL || 'http://your-droplet-ip-or-domain/api',
-      apiKey: process.env.VPS_API_KEY || '',
+      baseUrl: process.env.VPS_API_URL || 'http://162.243.56.27:3000/api',
+      apiKey: process.env.VPS_API_KEY || '41e5f38cd7486265f96c0defc49ba9af5a11962a61bc9bb71a993e51156b7c5e',
       timeout: 30000 // 30 seconds
     };
     
